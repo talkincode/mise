@@ -29,3 +29,4 @@ The project uses a modular architecture with:
 - Backend modules for integrations
 - Flow modules for complex operations
 <!--Q:end id=chapter2-->
+

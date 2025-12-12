@@ -426,12 +426,82 @@ Example:\n\
     )]
     Doctor,
 
-    /// Watch for file changes (requires 'watch' feature)
+    /// Watch for file changes and run commands (requires 'watch' feature)
     #[cfg(feature = "watch")]
+    #[command(
+        long_about = "Watch for file changes in the workspace and automatically run a command.\n\
+Uses watchexec as the backend. By default runs `mise rebuild` immediately and on each change.\n\n\
+Supported file extensions by default:\n\
+  rs, md, txt, py, js, ts, jsx, tsx, json, yaml, yml, toml, html, css, scss\n\n\
+Automatically ignores:\n\
+  .mise/, .git/, target/, node_modules/, __pycache__/, dist/, build/\n\n\
+Examples:\n\
+  mise watch                              # Run 'mise rebuild' on changes\n\
+  mise watch --cmd 'mise anchor lint'     # Run custom command\n\
+  mise watch --clear --restart            # Clear screen, restart if running\n\
+  mise watch --exts rs,md --debounce 500  # Custom extensions and debounce\n\
+  mise watch --postpone                   # Wait for first change before running\n"
+    )]
     Watch {
-        /// Command to run on changes
-        #[arg(long)]
+        /// Command to run on file changes (default: 'mise rebuild')
+        #[arg(
+            long,
+            value_name = "CMD",
+            long_help = "Shell command to execute when files change.\n\n\
+If not specified, defaults to 'mise rebuild'."
+        )]
         cmd: Option<String>,
+
+        /// File extensions to watch (comma-separated)
+        #[arg(
+            long,
+            value_name = "EXTS",
+            long_help = "Comma-separated list of file extensions to watch.\n\n\
+Default: rs,md,txt,py,js,ts,jsx,tsx,json,yaml,yml,toml,html,css,scss"
+        )]
+        exts: Option<String>,
+
+        /// Additional paths to ignore (can be used multiple times)
+        #[arg(
+            long,
+            value_name = "PATH",
+            action = clap::ArgAction::Append,
+            long_help = "Additional paths or patterns to ignore.\n\n\
+Can be specified multiple times. Added to the default ignore list."
+        )]
+        ignore: Vec<String>,
+
+        /// Debounce delay in milliseconds
+        #[arg(
+            long,
+            value_name = "MS",
+            long_help = "Time to wait after a file change before running the command.\n\n\
+Helps prevent multiple rapid executions during saves."
+        )]
+        debounce: Option<u64>,
+
+        /// Clear screen before each run
+        #[arg(
+            long,
+            long_help = "Clear the terminal screen before running the command."
+        )]
+        clear: bool,
+
+        /// Restart command if it's still running
+        #[arg(
+            long,
+            long_help = "If the command is still running when a new change is detected,\n\
+terminate it and start a new run."
+        )]
+        restart: bool,
+
+        /// Wait for first change before running (don't run at startup)
+        #[arg(
+            long,
+            long_help = "By default, the command runs once immediately at startup.\n\
+With this option, wait for the first file change before running."
+        )]
+        postpone: bool,
     },
 }
 
@@ -693,6 +763,26 @@ pub fn run(cli: Cli) -> Result<()> {
         Commands::Doctor => crate::backends::doctor::run_doctor(render_config),
 
         #[cfg(feature = "watch")]
-        Commands::Watch { cmd } => crate::backends::watch::run_watch(&root, cmd.as_deref()),
+        Commands::Watch {
+            cmd,
+            exts,
+            ignore,
+            debounce,
+            clear,
+            restart,
+            postpone,
+        } => {
+            let opts = crate::backends::watch::WatchOptions {
+                cmd,
+                extensions: exts,
+                ignore,
+                debounce,
+                clear,
+                restart,
+                postpone,
+                verbose: cli.verbose,
+            };
+            crate::backends::watch::run_watch(&root, opts, render_config)
+        }
     }
 }

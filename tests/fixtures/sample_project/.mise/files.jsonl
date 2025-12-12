@@ -1,0 +1,3 @@
+{"kind":"file","path":"README.md","confidence":"high","source_mode":"scan","meta":{"mtime_ms":1765563199704,"size":537,"truncated":false}}
+{"kind":"file","path":"docs/guide.md","confidence":"high","source_mode":"scan","meta":{"mtime_ms":1765562860960,"size":659,"truncated":false}}
+{"kind":"file","path":"src/main.rs","confidence":"high","source_mode":"scan","meta":{"mtime_ms":1765519001395,"size":508,"truncated":false}}

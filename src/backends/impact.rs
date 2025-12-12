@@ -332,6 +332,7 @@ pub fn analyze_impact(root: &Path, source: DiffSource, max_depth: usize) -> Resu
 }
 
 /// Convert impact analysis to ResultSet
+#[allow(dead_code)]
 fn impact_to_result_set(analysis: &ImpactAnalysis) -> ResultSet {
     let mut result_set = ResultSet::new();
 
@@ -397,7 +398,7 @@ fn format_summary(analysis: &ImpactAnalysis) -> String {
     let mut output = String::new();
 
     output.push_str(&format!("📊 Impact Analysis: {}\n", analysis.source));
-    output.push_str(&format!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"));
+    output.push_str("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
 
     if analysis.changed_files.is_empty() {
         output.push_str("No changes detected.\n");

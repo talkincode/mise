@@ -40,6 +40,7 @@ impl Language {
     }
 
     /// Get ast-grep language name
+    #[allow(dead_code)]
     pub fn sg_lang(&self) -> Option<&'static str> {
         match self {
             Language::Rust => Some("rust"),
@@ -51,6 +52,7 @@ impl Language {
     }
 
     /// Get file extensions for this language
+    #[allow(dead_code)]
     pub fn extensions(&self) -> &'static [&'static str] {
         match self {
             Language::Rust => &["rs"],
@@ -539,8 +541,8 @@ fn resolve_js_module(
 
     // Try with extensions
     for ext in extensions {
-        let candidate = if ext.starts_with('/') {
-            base_path.join(&ext[1..])
+        let candidate = if let Some(stripped) = ext.strip_prefix('/') {
+            base_path.join(stripped)
         } else {
             PathBuf::from(format!("{}{}", base_path.display(), ext))
         };
@@ -639,15 +641,11 @@ fn extract_module_from_match(text: &str, lang: Language) -> String {
                 .trim();
 
             // Handle crate::, self::, super:: prefixes
-            let stripped = if stripped.starts_with("crate::") {
-                &stripped[7..] // Skip "crate::"
-            } else if stripped.starts_with("self::") {
-                &stripped[6..] // Skip "self::"
-            } else if stripped.starts_with("super::") {
-                &stripped[7..] // Skip "super::"
-            } else {
-                stripped
-            };
+            let stripped = stripped
+                .strip_prefix("crate::")
+                .or_else(|| stripped.strip_prefix("self::"))
+                .or_else(|| stripped.strip_prefix("super::"))
+                .unwrap_or(stripped);
 
             stripped
                 .split("::")
@@ -770,7 +768,7 @@ fn format_dot(graph: &DepGraph, file: Option<&str>) -> String {
 
     // Add nodes
     for path in &files_to_show {
-        let label = path.split('/').last().unwrap_or(path);
+        let label = path.rsplit('/').next().unwrap_or(path);
         output.push_str(&format!("    \"{}\" [label=\"{}\"];\n", path, label));
     }
 
@@ -823,7 +821,7 @@ fn format_mermaid(graph: &DepGraph, file: Option<&str>) -> String {
     let mut node_ids: HashMap<String, String> = HashMap::new();
     for (idx, path) in files_to_show.iter().enumerate() {
         let id = format!("N{}", idx);
-        let label = path.split('/').last().unwrap_or(path);
+        let label = path.rsplit('/').next().unwrap_or(path);
         output.push_str(&format!("    {}[{}]\n", id, label));
         node_ids.insert(path.clone(), id);
     }
@@ -917,7 +915,7 @@ fn format_table(graph: &DepGraph) -> String {
             .depends_on
             .iter()
             .filter_map(|d| d.resolved_path.as_ref())
-            .map(|p| p.split('/').last().unwrap_or(p))
+            .map(|p| p.rsplit('/').next().unwrap_or(p))
             .collect();
 
         let deps_str = if deps.is_empty() {
