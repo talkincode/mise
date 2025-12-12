@@ -1,0 +1,3 @@
+# Ignore generated and secrets
+ignored/
+*.log

@@ -1,0 +1,4 @@
+# settings.toml
+[feature]
+enabled = true
+name = "alpha"

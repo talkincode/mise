@@ -1,0 +1,5 @@
+{
+  "name": "alpha",
+  "featureFlag": true,
+  "nested": { "k": "v" }
+}
