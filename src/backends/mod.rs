@@ -13,6 +13,7 @@ pub mod ast_grep;
 pub mod deps;
 pub mod doctor;
 pub mod extract;
+pub mod impact;
 pub mod rg;
 pub mod scan;
 

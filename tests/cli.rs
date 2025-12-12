@@ -310,3 +310,274 @@ fn deps_typescript_file_analysis() {
     // Should analyze TypeScript files
     assert!(s.contains("index.ts") || s.contains("utils.ts"));
 }
+
+// ================== Impact Command Tests ==================
+
+#[test]
+fn impact_returns_valid_json_output() {
+    let temp = tempdir().unwrap();
+
+    // Initialize git repo
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["init"])
+        .output()
+        .unwrap();
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["config", "user.email", "test@test.com"])
+        .output()
+        .unwrap();
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["config", "user.name", "Test"])
+        .output()
+        .unwrap();
+
+    // Create and commit initial file
+    write_file(&temp.path().join("main.rs"), "fn main() {}\n");
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["add", "."])
+        .output()
+        .unwrap();
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["commit", "-m", "initial"])
+        .output()
+        .unwrap();
+
+    // Make an unstaged change
+    write_file(
+        &temp.path().join("main.rs"),
+        "fn main() { println!(\"hello\"); }\n",
+    );
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("impact")
+        .arg("--impact-format")
+        .arg("jsonl");
+
+    let assert = cmd.assert().success();
+    let s = String::from_utf8_lossy(&assert.get_output().stdout);
+
+    // Should be valid JSON
+    let json: Value = serde_json::from_str(s.trim()).expect("valid json");
+    assert!(json.get("changed_files").is_some());
+    assert!(json.get("source").is_some());
+}
+
+#[test]
+fn impact_summary_format_works() {
+    let temp = tempdir().unwrap();
+
+    // Initialize git repo
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["init"])
+        .output()
+        .unwrap();
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["config", "user.email", "test@test.com"])
+        .output()
+        .unwrap();
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["config", "user.name", "Test"])
+        .output()
+        .unwrap();
+
+    // Create and commit initial file
+    write_file(&temp.path().join("test.txt"), "initial content\n");
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["add", "."])
+        .output()
+        .unwrap();
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["commit", "-m", "initial"])
+        .output()
+        .unwrap();
+
+    // Make an unstaged change
+    write_file(&temp.path().join("test.txt"), "modified content\n");
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("impact")
+        .arg("--impact-format")
+        .arg("summary");
+
+    let assert = cmd.assert().success();
+    let s = String::from_utf8_lossy(&assert.get_output().stdout);
+
+    // Should contain summary header
+    assert!(s.contains("Impact Analysis"));
+    assert!(s.contains("Changed files"));
+}
+
+#[test]
+fn impact_table_format_works() {
+    let temp = tempdir().unwrap();
+
+    // Initialize git repo
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["init"])
+        .output()
+        .unwrap();
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["config", "user.email", "test@test.com"])
+        .output()
+        .unwrap();
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["config", "user.name", "Test"])
+        .output()
+        .unwrap();
+
+    // Create and commit initial file
+    write_file(&temp.path().join("test.txt"), "initial\n");
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["add", "."])
+        .output()
+        .unwrap();
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["commit", "-m", "initial"])
+        .output()
+        .unwrap();
+
+    // Make an unstaged change
+    write_file(&temp.path().join("test.txt"), "modified\n");
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("impact")
+        .arg("--impact-format")
+        .arg("table");
+
+    let assert = cmd.assert().success();
+    let s = String::from_utf8_lossy(&assert.get_output().stdout);
+
+    // Should contain table format markers
+    assert!(s.contains("File") || s.contains("Impact"));
+}
+
+#[test]
+fn impact_staged_option_works() {
+    let temp = tempdir().unwrap();
+
+    // Initialize git repo
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["init"])
+        .output()
+        .unwrap();
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["config", "user.email", "test@test.com"])
+        .output()
+        .unwrap();
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["config", "user.name", "Test"])
+        .output()
+        .unwrap();
+
+    // Create and commit initial file
+    write_file(&temp.path().join("file.txt"), "initial\n");
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["add", "."])
+        .output()
+        .unwrap();
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["commit", "-m", "initial"])
+        .output()
+        .unwrap();
+
+    // Make and stage a change
+    write_file(&temp.path().join("file.txt"), "staged change\n");
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["add", "."])
+        .output()
+        .unwrap();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("impact")
+        .arg("--staged")
+        .arg("--impact-format")
+        .arg("jsonl");
+
+    let assert = cmd.assert().success();
+    let s = String::from_utf8_lossy(&assert.get_output().stdout);
+
+    let json: Value = serde_json::from_str(s.trim()).expect("valid json");
+    assert!(json
+        .get("source")
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .contains("staged"));
+}
+
+#[test]
+fn impact_no_changes_returns_empty() {
+    let temp = tempdir().unwrap();
+
+    // Initialize git repo with no changes
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["init"])
+        .output()
+        .unwrap();
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["config", "user.email", "test@test.com"])
+        .output()
+        .unwrap();
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["config", "user.name", "Test"])
+        .output()
+        .unwrap();
+
+    write_file(&temp.path().join("test.txt"), "content\n");
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["add", "."])
+        .output()
+        .unwrap();
+    Command::new("git")
+        .current_dir(temp.path())
+        .args(["commit", "-m", "initial"])
+        .output()
+        .unwrap();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("impact")
+        .arg("--impact-format")
+        .arg("jsonl");
+
+    let assert = cmd.assert().success();
+    let s = String::from_utf8_lossy(&assert.get_output().stdout);
+
+    let json: Value = serde_json::from_str(s.trim()).expect("valid json");
+    let changed = json.get("changed_files").unwrap().as_array().unwrap();
+    assert!(changed.is_empty());
+}

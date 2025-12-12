@@ -327,6 +327,75 @@ Supported values:\n\
         deps_format: String,
     },
 
+    /// Analyze the impact of code changes.
+    #[command(
+        long_about = r#"Analyze the impact of code changes by combining git diff with
+the dependency graph to understand what will be affected.
+
+This is more powerful than plain `git diff` because:
+1. Shows direct impacts: files that depend on changed files
+2. Shows transitive impacts: files affected through dependency chains
+3. Lists affected anchors: code markers that may need attention
+
+Examples:
+    mise impact                        # Analyze unstaged changes
+    mise impact --staged               # Analyze staged changes
+    mise impact --commit abc123        # Analyze a specific commit
+    mise impact --diff main..feature   # Compare branches
+    mise impact --impact-format summary
+"#
+    )]
+    Impact {
+        /// Analyze staged changes instead of unstaged.
+        #[arg(
+            long,
+            long_help = "Analyze staged changes (git diff --staged) instead of unstaged."
+        )]
+        staged: bool,
+
+        /// Analyze a specific commit.
+        #[arg(
+            long,
+            value_name = "HASH",
+            long_help = "Analyze changes from a specific commit.\n\n\
+Example: --commit abc123"
+        )]
+        commit: Option<String>,
+
+        /// Analyze diff between two refs (base..head).
+        #[arg(
+            long,
+            value_name = "BASE..HEAD",
+            long_help = "Analyze the diff between two git refs.\n\n\
+Example: --diff main..feature"
+        )]
+        diff: Option<String>,
+
+        /// Maximum depth for transitive impact analysis.
+        #[arg(
+            long,
+            default_value = "3",
+            value_name = "N",
+            long_help = "Maximum depth for transitive impact analysis.\n\n\
+Higher values find more distant impacts but may be slower."
+        )]
+        max_depth: usize,
+
+        /// Output format for impact (jsonl/json/summary/table).
+        #[arg(
+            long = "impact-format",
+            value_name = "FORMAT",
+            default_value = "jsonl",
+            long_help = "Select the output format for impact analysis.\n\n\
+Supported values:\n\
+- jsonl (default): single JSON line with full analysis\n\
+- json: pretty-printed JSON\n\
+- summary: human-readable summary\n\
+- table: ASCII table format"
+        )]
+        impact_format: String,
+    },
+
     /// Higher-level workflows that combine multiple sources.
     #[command(
         long_about = "Flows are multi-step commands that combine anchors + search + heuristics\n\
@@ -506,6 +575,26 @@ pub fn run(cli: Cli) -> Result<()> {
                 file.as_deref(),
                 reverse,
                 deps_fmt,
+                render_config,
+            )
+        }
+
+        Commands::Impact {
+            staged,
+            commit,
+            diff,
+            max_depth,
+            impact_format,
+        } => {
+            let impact_fmt: crate::backends::impact::ImpactFormat =
+                impact_format.parse().unwrap_or_default();
+            crate::backends::impact::run_impact(
+                &root,
+                staged,
+                commit.as_deref(),
+                diff.as_deref(),
+                max_depth,
+                impact_fmt,
                 render_config,
             )
         }
