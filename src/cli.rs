@@ -275,6 +275,58 @@ Examples:
         scope: Vec<PathBuf>,
     },
 
+    /// Analyze code dependencies (imports/requires/use statements).
+    #[command(
+        long_about = r#"Analyze code dependencies to understand "what does this file depend on"
+and "what depends on this file".
+
+Supports: Rust (.rs), TypeScript (.ts/.tsx), JavaScript (.js/.jsx), Python (.py)
+
+Output formats:
+- jsonl (default): one JSON object per file
+- json: complete JSON array
+- dot: Graphviz DOT format (pipe to `dot -Tpng` for visualization)
+- mermaid: Mermaid diagram syntax (embed in Markdown)
+- tree: ASCII tree view (requires a specific file)
+- table: ASCII table summary
+
+Examples:
+    mise deps src/cli.rs                    # What does cli.rs depend on?
+    mise deps src/cli.rs --reverse          # What depends on cli.rs?
+    mise deps --deps-format dot | dot -Tpng -o deps.png
+    mise deps --deps-format mermaid >> README.md
+    mise deps src/cli.rs --deps-format tree
+"#
+    )]
+    Deps {
+        /// File to analyze (if omitted, analyzes all files).
+        #[arg(value_name = "FILE")]
+        file: Option<PathBuf>,
+
+        /// Show reverse dependencies (what depends on this file).
+        #[arg(
+            long,
+            long_help = "Show files that depend on the target file, instead of what the file depends on."
+        )]
+        reverse: bool,
+
+        /// Output format for deps (jsonl/json/dot/mermaid/tree/table).
+        #[arg(
+            long = "deps-format",
+            value_name = "FORMAT",
+            default_value = "jsonl",
+            long_help = "Select the output format for dependency analysis.\n\n\
+Supported values:\n\
+- jsonl (default): one JSON object per file\n\
+- json: complete JSON array\n\
+- dot: Graphviz DOT format\n\
+- mermaid: Mermaid diagram syntax\n\
+- tree: ASCII tree (requires file argument)\n\
+- table: ASCII table summary"
+        )]
+        deps_format: String,
+    },
+
     /// Higher-level workflows that combine multiple sources.
     #[command(
         long_about = "Flows are multi-step commands that combine anchors + search + heuristics\n\
@@ -440,6 +492,22 @@ pub fn run(cli: Cli) -> Result<()> {
 
         Commands::Ast { pattern, scope } => {
             crate::backends::ast_grep::run_ast(&root, &pattern, &scope, render_config)
+        }
+
+        Commands::Deps {
+            file,
+            reverse,
+            deps_format,
+        } => {
+            let deps_fmt: crate::backends::deps::DepsFormat =
+                deps_format.parse().unwrap_or_default();
+            crate::backends::deps::run_deps(
+                &root,
+                file.as_deref(),
+                reverse,
+                deps_fmt,
+                render_config,
+            )
         }
 
         Commands::Flow { action } => match action {

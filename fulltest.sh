@@ -68,10 +68,18 @@ run_cmd "$MISE anchor list --tag intro --root $ALPHA --format jsonl"
 run_cmd "$MISE anchor get alpha.intro --root $ALPHA --format jsonl"
 run_cmd "$MISE anchor lint --root $INVALID --format jsonl"
 
-echo -e "\n${GREEN}【8. flow writing - 写作流程】${NC}\n"
+echo -e "\n${GREEN}【8. deps - 依赖分析】${NC}\n"
+run_cmd "$MISE deps --root . --format jsonl | head -5"
+run_cmd "$MISE deps src/cli.rs --root . --format tree"
+run_cmd "$MISE deps src/cli.rs --root . --reverse --format tree"
+run_cmd "$MISE deps --root . --format dot | head -20"
+run_cmd "$MISE deps --root . --format mermaid | head -20"
+run_cmd "$MISE deps --root . --format table | head -15"
+
+echo -e "\n${GREEN}【9. flow writing - 写作流程】${NC}\n"
 run_cmd "$MISE flow writing --anchor alpha.intro --max-items 5 --root $ALPHA --format jsonl"
 
-echo -e "\n${GREEN}【9. rebuild - 重建缓存】${NC}\n"
+echo -e "\n${GREEN}【10. rebuild - 重建缓存】${NC}\n"
 run_cmd "$MISE rebuild --root $ALPHA --format jsonl"
 
 echo -e "${GREEN}"
