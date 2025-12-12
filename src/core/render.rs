@@ -29,19 +29,50 @@ impl std::str::FromStr for OutputFormat {
     }
 }
 
+/// Render configuration combining format and options
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RenderConfig {
+    pub format: OutputFormat,
+    pub pretty: bool,
+}
+
+impl RenderConfig {
+    /// Create a new render config with default options
+    #[allow(dead_code)]
+    pub fn new(format: OutputFormat) -> Self {
+        Self {
+            format,
+            pretty: false,
+        }
+    }
+
+    /// Create a new render config with pretty option
+    pub fn with_pretty(format: OutputFormat, pretty: bool) -> Self {
+        Self { format, pretty }
+    }
+}
+
 /// Renderer for result sets
 pub struct Renderer {
-    format: OutputFormat,
+    config: RenderConfig,
 }
 
 impl Renderer {
+    #[allow(dead_code)]
     pub fn new(format: OutputFormat) -> Self {
-        Self { format }
+        Self {
+            config: RenderConfig::new(format),
+        }
+    }
+
+    /// Create a new renderer with render config
+    pub fn with_config(config: RenderConfig) -> Self {
+        Self { config }
     }
 
     /// Render a result set to a string
     pub fn render(&self, result_set: &ResultSet) -> String {
-        match self.format {
+        match self.config.format {
             OutputFormat::Jsonl => self.render_jsonl(result_set),
             OutputFormat::Json => self.render_json(result_set),
             OutputFormat::Markdown => self.render_markdown(result_set),
@@ -65,14 +96,24 @@ impl Renderer {
         result_set
             .items
             .iter()
-            .filter_map(|item| serde_json::to_string(item).ok())
+            .filter_map(|item| {
+                if self.config.pretty {
+                    serde_json::to_string_pretty(item).ok()
+                } else {
+                    serde_json::to_string(item).ok()
+                }
+            })
             .collect::<Vec<_>>()
-            .join("\n")
+            .join(if self.config.pretty { "\n\n" } else { "\n" })
     }
 
     /// Render as a single JSON array
     fn render_json(&self, result_set: &ResultSet) -> String {
-        serde_json::to_string_pretty(&result_set.items).unwrap_or_else(|_| "[]".to_string())
+        if self.config.pretty {
+            serde_json::to_string_pretty(&result_set.items).unwrap_or_else(|_| "[]".to_string())
+        } else {
+            serde_json::to_string(&result_set.items).unwrap_or_else(|_| "[]".to_string())
+        }
     }
 
     /// Render as Markdown

@@ -5,7 +5,7 @@ use anyhow::Result;
 use crate::backends::ast_grep::get_ast_grep_command;
 use crate::backends::rg::is_rg_available;
 use crate::core::model::{Confidence, Kind, MiseError, ResultItem, ResultSet, SourceMode};
-use crate::core::render::{OutputFormat, Renderer};
+use crate::core::render::{RenderConfig, Renderer};
 use crate::core::util::command_exists;
 
 /// Dependency status
@@ -27,16 +27,26 @@ impl DependencyStatus {
             "optional"
         };
 
-        let message = format!(
-            "{} {} ({}) - {}",
-            status,
-            self.name,
-            required,
-            self.command
+        // 如果已安装，只显示状态；未安装才显示安装方法
+        let message = if self.available {
+            format!(
+                "{} {} ({}) - installed: {}",
+                status,
+                self.name,
+                required,
+                self.command.as_ref().unwrap_or(&"unknown".to_string())
+            )
+        } else {
+            let install_hint = self
+                .notes
                 .as_ref()
-                .map(|c| format!("found: {}", c))
-                .unwrap_or_else(|| "not found".to_string())
-        );
+                .map(|n| format!("\n  {}", n))
+                .unwrap_or_default();
+            format!(
+                "{} {} ({}) - not found{}",
+                status, self.name, required, install_hint
+            )
+        };
 
         let mut item = ResultItem {
             kind: if self.available {
@@ -61,14 +71,6 @@ impl DependencyStatus {
             item.errors.push(MiseError::new(
                 "MISSING_DEPENDENCY",
                 format!("{} is required but not found", self.name),
-            ));
-        }
-
-        if let Some(notes) = &self.notes {
-            item.excerpt = Some(format!(
-                "{}\n  Note: {}",
-                item.excerpt.unwrap_or_default(),
-                notes
             ));
         }
 
@@ -121,7 +123,7 @@ pub fn check_dependencies() -> Vec<DependencyStatus> {
 }
 
 /// Run the doctor command
-pub fn run_doctor(format: OutputFormat) -> Result<()> {
+pub fn run_doctor(config: RenderConfig) -> Result<()> {
     let deps = check_dependencies();
 
     let mut result_set = ResultSet::new();
@@ -129,7 +131,7 @@ pub fn run_doctor(format: OutputFormat) -> Result<()> {
         result_set.push(dep.to_result_item());
     }
 
-    let renderer = Renderer::new(format);
+    let renderer = Renderer::with_config(config);
     println!("{}", renderer.render(&result_set));
 
     // Return error if any required dependency is missing

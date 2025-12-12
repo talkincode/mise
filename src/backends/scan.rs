@@ -8,7 +8,7 @@ use std::path::Path;
 
 use crate::core::model::{Meta, ResultItem, ResultSet};
 use crate::core::paths::make_relative;
-use crate::core::render::{OutputFormat, Renderer};
+use crate::core::render::{RenderConfig, Renderer};
 use crate::core::util::{get_file_size, get_mtime_ms};
 
 /// Scan files in a directory
@@ -92,11 +92,11 @@ pub fn run_scan(
     hidden: bool,
     ignore: bool,
     file_type: Option<&str>,
-    format: OutputFormat,
+    config: RenderConfig,
 ) -> Result<()> {
     let result_set = scan_files(root, scope, max_depth, hidden, ignore, file_type)?;
 
-    let renderer = Renderer::new(format);
+    let renderer = Renderer::with_config(config);
     println!("{}", renderer.render(&result_set));
 
     Ok(())
@@ -107,7 +107,7 @@ pub fn run_find(
     root: &Path,
     pattern: Option<&str>,
     scope: Option<&Path>,
-    format: OutputFormat,
+    config: RenderConfig,
 ) -> Result<()> {
     let mut result_set = scan_files(root, scope, None, false, true, Some("file"))?;
 
@@ -122,7 +122,7 @@ pub fn run_find(
         });
     }
 
-    let renderer = Renderer::new(format);
+    let renderer = Renderer::with_config(config);
     println!("{}", renderer.render(&result_set));
 
     Ok(())

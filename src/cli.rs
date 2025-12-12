@@ -4,7 +4,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use crate::core::render::OutputFormat;
+use crate::core::render::{OutputFormat, RenderConfig};
 
 /// mise - a unified CLI for scanning files, managing anchors, and searching code.
 #[derive(Parser, Debug)]
@@ -88,6 +88,15 @@ printed to stdout unless a command explicitly suppresses them."
 may increase stderr output."
     )]
     pub verbose: bool,
+
+    /// Pretty-print JSON/JSONL output with indentation.
+    #[arg(
+        long,
+        global = true,
+        long_help = "Pretty-print JSON and JSONL output with indentation for human readability.\n\n\
+This is useful when manually inspecting results. Has no effect on md/raw formats."
+    )]
+    pub pretty: bool,
 
     #[command(subcommand)]
     pub command: Commands,
@@ -380,6 +389,7 @@ Example:\n\
 pub fn run(cli: Cli) -> Result<()> {
     // Parse output format
     let format: OutputFormat = cli.format.parse().unwrap_or_default();
+    let render_config = RenderConfig::with_pretty(format, cli.pretty);
 
     // Get absolute root path
     let root = cli.root.canonicalize().unwrap_or(cli.root);
@@ -398,46 +408,49 @@ pub fn run(cli: Cli) -> Result<()> {
             hidden,
             !no_ignore,
             r#type.as_deref(),
-            format,
+            render_config,
         ),
 
-        Commands::Find { pattern, scope } => {
-            crate::backends::scan::run_find(&root, pattern.as_deref(), scope.as_deref(), format)
-        }
+        Commands::Find { pattern, scope } => crate::backends::scan::run_find(
+            &root,
+            pattern.as_deref(),
+            scope.as_deref(),
+            render_config,
+        ),
 
         Commands::Extract {
             path,
             lines,
             max_bytes,
-        } => crate::backends::extract::run_extract(&root, &path, &lines, max_bytes, format),
+        } => crate::backends::extract::run_extract(&root, &path, &lines, max_bytes, render_config),
 
         Commands::Anchor { action } => match action {
             AnchorCommands::List { tag } => {
-                crate::anchors::api::run_list(&root, tag.as_deref(), format)
+                crate::anchors::api::run_list(&root, tag.as_deref(), render_config)
             }
             AnchorCommands::Get { id, with_neighbors } => {
-                crate::anchors::api::run_get(&root, &id, with_neighbors, format)
+                crate::anchors::api::run_get(&root, &id, with_neighbors, render_config)
             }
-            AnchorCommands::Lint => crate::anchors::lint::run_lint(&root, format),
+            AnchorCommands::Lint => crate::anchors::lint::run_lint(&root, render_config),
         },
 
         Commands::Match { pattern, scope } => {
-            crate::backends::rg::run_match(&root, &pattern, &scope, format)
+            crate::backends::rg::run_match(&root, &pattern, &scope, render_config)
         }
 
         Commands::Ast { pattern, scope } => {
-            crate::backends::ast_grep::run_ast(&root, &pattern, &scope, format)
+            crate::backends::ast_grep::run_ast(&root, &pattern, &scope, render_config)
         }
 
         Commands::Flow { action } => match action {
             FlowCommands::Writing { anchor, max_items } => {
-                crate::flows::writing::run_writing(&root, &anchor, max_items, format)
+                crate::flows::writing::run_writing(&root, &anchor, max_items, render_config)
             }
         },
 
-        Commands::Rebuild => crate::cache::store::run_rebuild(&root, format),
+        Commands::Rebuild => crate::cache::store::run_rebuild(&root, render_config),
 
-        Commands::Doctor => crate::backends::doctor::run_doctor(format),
+        Commands::Doctor => crate::backends::doctor::run_doctor(render_config),
 
         #[cfg(feature = "watch")]
         Commands::Watch { cmd } => crate::backends::watch::run_watch(&root, cmd.as_deref()),

@@ -14,18 +14,18 @@ use crate::anchors::parse::parse_file;
 use crate::backends::rg::run_rg;
 use crate::backends::scan::scan_files;
 use crate::core::model::{Confidence, ResultSet};
-use crate::core::render::{OutputFormat, Renderer};
+use crate::core::render::{RenderConfig, Renderer};
 
 /// Run the writing flow
 pub fn run_writing(
     root: &Path,
     anchor_id: &str,
     max_items: usize,
-    format: OutputFormat,
+    config: RenderConfig,
 ) -> Result<()> {
     let result_set = gather_writing_evidence(root, anchor_id, max_items)?;
 
-    let renderer = Renderer::new(format);
+    let renderer = Renderer::with_config(config);
     println!("{}", renderer.render(&result_set));
 
     Ok(())

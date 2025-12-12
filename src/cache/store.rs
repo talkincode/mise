@@ -8,7 +8,7 @@ use std::path::Path;
 use crate::cache::meta::{CacheMeta, CACHE_VERSION};
 use crate::core::model::{ResultItem, ResultSet};
 use crate::core::paths::cache_dir;
-use crate::core::render::{OutputFormat, Renderer};
+use crate::core::render::{RenderConfig, Renderer};
 use crate::core::util::hash_bytes;
 
 /// Cache file names
@@ -92,7 +92,7 @@ pub fn is_cache_valid(root: &Path) -> bool {
 }
 
 /// Rebuild the entire cache
-pub fn run_rebuild(root: &Path, format: OutputFormat) -> Result<()> {
+pub fn run_rebuild(root: &Path, config: RenderConfig) -> Result<()> {
     let cache_path = ensure_cache_dir(root)?;
 
     // Generate files.jsonl using scan
@@ -120,7 +120,7 @@ pub fn run_rebuild(root: &Path, format: OutputFormat) -> Result<()> {
     result_set.push(ResultItem::file(".mise/anchors.jsonl"));
     result_set.push(ResultItem::file(".mise/meta.json"));
 
-    let renderer = Renderer::new(format);
+    let renderer = Renderer::with_config(config);
     println!("{}", renderer.render(&result_set));
 
     Ok(())

@@ -6,7 +6,7 @@ use std::path::Path;
 use crate::anchors::parse::{parse_file, Anchor};
 use crate::backends::scan::scan_files;
 use crate::core::model::ResultSet;
-use crate::core::render::{OutputFormat, Renderer};
+use crate::core::render::{RenderConfig, Renderer};
 
 /// List all anchors in the workspace
 pub fn list_anchors(root: &Path, tag_filter: Option<&str>) -> Result<ResultSet> {
@@ -119,10 +119,10 @@ fn is_anchor_candidate(path: &Path) -> bool {
 }
 
 /// Run anchor list command
-pub fn run_list(root: &Path, tag: Option<&str>, format: OutputFormat) -> Result<()> {
+pub fn run_list(root: &Path, tag: Option<&str>, config: RenderConfig) -> Result<()> {
     let result_set = list_anchors(root, tag)?;
 
-    let renderer = Renderer::new(format);
+    let renderer = Renderer::with_config(config);
     println!("{}", renderer.render(&result_set));
 
     Ok(())
@@ -133,11 +133,11 @@ pub fn run_get(
     root: &Path,
     id: &str,
     with_neighbors: Option<usize>,
-    format: OutputFormat,
+    config: RenderConfig,
 ) -> Result<()> {
     let result_set = get_anchor(root, id, with_neighbors)?;
 
-    let renderer = Renderer::new(format);
+    let renderer = Renderer::with_config(config);
     println!("{}", renderer.render(&result_set));
 
     Ok(())

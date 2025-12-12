@@ -13,7 +13,7 @@ use std::path::Path;
 use crate::anchors::parse::{parse_content, Anchor};
 use crate::backends::scan::scan_files;
 use crate::core::model::{Confidence, Kind, MiseError, ResultItem, ResultSet, SourceMode};
-use crate::core::render::{OutputFormat, Renderer};
+use crate::core::render::{RenderConfig, Renderer};
 
 /// Lint issue severity
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -222,7 +222,7 @@ fn is_text_file(path: &Path) -> bool {
 }
 
 /// Run the lint command
-pub fn run_lint(root: &Path, format: OutputFormat) -> Result<()> {
+pub fn run_lint(root: &Path, config: RenderConfig) -> Result<()> {
     let issues = lint_anchors(root)?;
 
     let mut result_set = ResultSet::new();
@@ -230,7 +230,7 @@ pub fn run_lint(root: &Path, format: OutputFormat) -> Result<()> {
         result_set.push(issue.to_result_item());
     }
 
-    let renderer = Renderer::new(format);
+    let renderer = Renderer::with_config(config);
     println!("{}", renderer.render(&result_set));
 
     Ok(())

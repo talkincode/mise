@@ -8,7 +8,7 @@ use std::process::Command;
 
 use crate::core::model::{MiseError, Range, ResultItem, ResultSet, SourceMode};
 use crate::core::paths::make_relative;
-use crate::core::render::{OutputFormat, Renderer};
+use crate::core::render::{RenderConfig, Renderer};
 use crate::core::util::command_exists;
 
 /// Check if ripgrep is available
@@ -102,11 +102,11 @@ pub fn run_match(
     root: &Path,
     pattern: &str,
     scopes: &[impl AsRef<Path>],
-    format: OutputFormat,
+    config: RenderConfig,
 ) -> Result<()> {
     let result_set = run_rg(root, pattern, scopes)?;
 
-    let renderer = Renderer::new(format);
+    let renderer = Renderer::with_config(config);
     println!("{}", renderer.render(&result_set));
 
     Ok(())

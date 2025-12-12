@@ -7,7 +7,7 @@ use std::path::Path;
 
 use crate::core::model::{Meta, Range, ResultItem, ResultSet};
 use crate::core::paths::make_relative;
-use crate::core::render::{OutputFormat, Renderer};
+use crate::core::render::{RenderConfig, Renderer};
 use crate::core::util::truncate_string;
 
 /// Parse line range string (format: "start:end")
@@ -120,7 +120,7 @@ pub fn run_extract(
     path: &Path,
     lines: &str,
     max_bytes: usize,
-    format: OutputFormat,
+    config: RenderConfig,
 ) -> Result<()> {
     let (start, end) = parse_line_range(lines)?;
     let item = extract_lines(root, path, start, end, max_bytes)?;
@@ -128,7 +128,7 @@ pub fn run_extract(
     let mut result_set = ResultSet::new();
     result_set.push(item);
 
-    let renderer = Renderer::new(format);
+    let renderer = Renderer::with_config(config);
     println!("{}", renderer.render(&result_set));
 
     Ok(())
