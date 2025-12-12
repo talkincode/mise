@@ -5,4 +5,5 @@
 
 pub mod api;
 pub mod lint;
+pub mod mark;
 pub mod parse;

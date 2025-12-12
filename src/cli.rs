@@ -553,6 +553,106 @@ Example:\n\
   mise anchor lint\n"
     )]
     Lint,
+
+    /// Mark a text block with anchor markers (insert begin/end tags).
+    #[command(
+        long_about = "Insert anchor markers around a specified line range in a file.\n\
+This is useful for AI agents to quickly mark sections of code or documentation.\n\n\
+The markers follow the format:\n\
+  <!--Q:begin id=xxx tags=a,b v=1-->\n\
+  ...content...\n\
+  <!--Q:end id=xxx-->\n\n\
+Examples:\n\
+  mise anchor mark README.md --start 10 --end 25 --id intro\n\
+  mise anchor mark src/main.rs --start 1 --end 50 --id main.entry --tags entry,core\n\
+  mise anchor mark doc.md --start 5 --end 10 --id sec1 --dry-run\n"
+    )]
+    Mark {
+        /// File path to mark (relative to ROOT).
+        #[arg(value_name = "FILE")]
+        file: String,
+
+        /// Start line (1-indexed, inclusive).
+        #[arg(long, value_name = "LINE")]
+        start: u32,
+
+        /// End line (1-indexed, inclusive).
+        #[arg(long, value_name = "LINE")]
+        end: u32,
+
+        /// Anchor ID.
+        #[arg(long, value_name = "ID")]
+        id: String,
+
+        /// Tags for categorization (comma-separated).
+        #[arg(long, value_name = "TAGS", value_delimiter = ',')]
+        tags: Vec<String>,
+
+        /// Version number (default: 1).
+        #[arg(long, default_value = "1", value_name = "N")]
+        version: u32,
+
+        /// Preview changes without writing to file.
+        #[arg(
+            long,
+            long_help = "Preview the mark operation without actually modifying the file.\n\
+Useful for testing before applying changes."
+        )]
+        dry_run: bool,
+    },
+
+    /// Batch mark multiple text blocks from JSON input.
+    #[command(
+        long_about = "Insert anchor markers for multiple locations from JSON input.\n\
+Designed for AI agents to efficiently mark many sections at once.\n\n\
+JSON input format (array or object with 'marks' field):\n\
+  [\n\
+    {\"path\": \"README.md\", \"start_line\": 1, \"end_line\": 10, \"id\": \"intro\", \"tags\": [\"doc\"]},\n\
+    {\"path\": \"src/main.rs\", \"start_line\": 5, \"end_line\": 20, \"id\": \"main\"}\n\
+  ]\n\n\
+Or:\n\
+  {\"marks\": [{...}, {...}]}\n\n\
+Marks in the same file are processed from bottom to top to avoid line shifts.\n\n\
+Examples:\n\
+  mise anchor batch --json '[{\"path\":\"a.md\",\"start_line\":1,\"end_line\":5,\"id\":\"a\"}]'\n\
+  mise anchor batch --file marks.json\n\
+  mise anchor batch --json '...' --dry-run\n"
+    )]
+    Batch {
+        /// JSON string with mark specifications.
+        #[arg(long, value_name = "JSON", conflicts_with = "file")]
+        json: Option<String>,
+
+        /// Path to JSON file with mark specifications.
+        #[arg(long, value_name = "FILE", conflicts_with = "json")]
+        file: Option<std::path::PathBuf>,
+
+        /// Preview changes without writing to files.
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// Remove anchor markers from a file (unmark).
+    #[command(
+        long_about = "Remove anchor markers (begin and end tags) from a file.\n\
+The content between the markers is preserved.\n\n\
+Examples:\n\
+  mise anchor unmark README.md --id intro\n\
+  mise anchor unmark src/main.rs --id main.entry --dry-run\n"
+    )]
+    Unmark {
+        /// File path to unmark (relative to ROOT).
+        #[arg(value_name = "FILE")]
+        file: String,
+
+        /// Anchor ID to remove.
+        #[arg(long, value_name = "ID")]
+        id: String,
+
+        /// Preview changes without writing to file.
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -687,6 +787,46 @@ pub fn run(cli: Cli) -> Result<()> {
                 crate::anchors::api::run_get(&root, &id, with_neighbors, render_config)
             }
             AnchorCommands::Lint => crate::anchors::lint::run_lint(&root, render_config),
+            AnchorCommands::Mark {
+                file,
+                start,
+                end,
+                id,
+                tags,
+                version,
+                dry_run,
+            } => crate::anchors::mark::run_mark(
+                &root,
+                &file,
+                start,
+                end,
+                &id,
+                tags,
+                version,
+                dry_run,
+                render_config,
+            ),
+            AnchorCommands::Batch {
+                json,
+                file,
+                dry_run,
+            } => {
+                if let Some(json_str) = json {
+                    crate::anchors::mark::run_batch_mark(&root, &json_str, dry_run, render_config)
+                } else if let Some(file_path) = file {
+                    crate::anchors::mark::run_batch_mark_from_file(
+                        &root,
+                        &file_path,
+                        dry_run,
+                        render_config,
+                    )
+                } else {
+                    anyhow::bail!("Either --json or --file must be provided")
+                }
+            }
+            AnchorCommands::Unmark { file, id, dry_run } => {
+                crate::anchors::mark::run_unmark(&root, &file, &id, dry_run, render_config)
+            }
         },
 
         Commands::Match { pattern, scope } => {
