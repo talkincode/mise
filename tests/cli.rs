@@ -581,3 +581,169 @@ fn impact_no_changes_returns_empty() {
     let changed = json.get("changed_files").unwrap().as_array().unwrap();
     assert!(changed.is_empty());
 }
+
+// =============================================================================
+// Pack Command Tests
+// =============================================================================
+
+#[test]
+fn pack_files_returns_valid_jsonl() {
+    let temp = tempdir().unwrap();
+
+    write_file(
+        &temp.path().join("readme.md"),
+        "# Hello World\nThis is a test.",
+    );
+    write_file(
+        &temp.path().join("code.rs"),
+        "fn main() { println!(\"hello\"); }",
+    );
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("flow")
+        .arg("pack")
+        .arg("--files")
+        .arg("readme.md")
+        .arg("code.rs");
+
+    let assert = cmd.assert().success();
+    let items = parse_jsonl(&assert.get_output().stdout);
+
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0].get("kind").unwrap().as_str().unwrap(), "file");
+}
+
+#[test]
+fn pack_with_anchors_includes_both() {
+    let temp = tempdir().unwrap();
+
+    write_file(
+        &temp.path().join("doc.md"),
+        r#"# Doc
+<!--Q:begin id=intro tags=doc v=1-->
+Introduction section.
+<!--Q:end id=intro-->
+
+More content here.
+"#,
+    );
+    write_file(&temp.path().join("extra.txt"), "extra content");
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("flow")
+        .arg("pack")
+        .arg("--anchors")
+        .arg("intro")
+        .arg("--files")
+        .arg("extra.txt");
+
+    let assert = cmd.assert().success();
+    let items = parse_jsonl(&assert.get_output().stdout);
+
+    // Should have anchor + file
+    assert!(items.len() >= 2);
+    let kinds: Vec<_> = items
+        .iter()
+        .map(|v| v.get("kind").unwrap().as_str().unwrap())
+        .collect();
+    assert!(kinds.contains(&"anchor"));
+    assert!(kinds.contains(&"file"));
+}
+
+#[test]
+fn pack_with_max_tokens_truncates() {
+    let temp = tempdir().unwrap();
+
+    // Create a large file that exceeds typical token budget
+    let large_content = "x".repeat(10000); // ~2500 tokens
+    write_file(&temp.path().join("large.txt"), &large_content);
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("flow")
+        .arg("pack")
+        .arg("--files")
+        .arg("large.txt")
+        .arg("--max-tokens")
+        .arg("500");
+
+    let assert = cmd.assert().success();
+    let items = parse_jsonl(&assert.get_output().stdout);
+
+    assert_eq!(items.len(), 1);
+    let excerpt = items[0].get("excerpt").unwrap().as_str().unwrap();
+    // Should be truncated (less than original 10000 chars)
+    assert!(excerpt.len() < 10000);
+    assert!(excerpt.contains("[truncated]"));
+}
+
+#[test]
+fn pack_with_stats_outputs_statistics() {
+    let temp = tempdir().unwrap();
+
+    write_file(&temp.path().join("a.txt"), "content a");
+    write_file(&temp.path().join("b.txt"), "content b");
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("flow")
+        .arg("pack")
+        .arg("--files")
+        .arg("a.txt")
+        .arg("b.txt")
+        .arg("--stats");
+
+    let assert = cmd.assert().success();
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
+
+    // Stats should be printed to stderr
+    assert!(stderr.contains("Pack Statistics"));
+    assert!(stderr.contains("Items:"));
+    assert!(stderr.contains("Estimated tokens:"));
+}
+
+#[test]
+fn pack_priority_by_confidence_orders_correctly() {
+    let temp = tempdir().unwrap();
+
+    // Create files - pack should pick high confidence first when truncating
+    write_file(&temp.path().join("file1.txt"), "content one");
+    write_file(&temp.path().join("file2.txt"), "content two");
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("flow")
+        .arg("pack")
+        .arg("--files")
+        .arg("file1.txt")
+        .arg("file2.txt")
+        .arg("--priority")
+        .arg("confidence");
+
+    let assert = cmd.assert().success();
+    let items = parse_jsonl(&assert.get_output().stdout);
+
+    // Should return both items since no max-tokens limit
+    assert_eq!(items.len(), 2);
+}
+
+#[test]
+fn pack_empty_selection_returns_empty() {
+    let temp = tempdir().unwrap();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    cmd.arg("--root").arg(temp.path()).arg("flow").arg("pack");
+
+    // No anchors or files specified
+    let assert = cmd.assert().success();
+    let items = parse_jsonl(&assert.get_output().stdout);
+
+    assert!(items.is_empty());
+}

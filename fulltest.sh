@@ -85,7 +85,13 @@ run_cmd "$MISE impact --staged --root . --impact-format summary"
 echo -e "\n${GREEN}【10. flow writing - 写作流程】${NC}\n"
 run_cmd "$MISE flow writing --anchor alpha.intro --max-items 5 --root $ALPHA --format jsonl"
 
-echo -e "\n${GREEN}【11. rebuild - 重建缓存】${NC}\n"
+echo -e "\n${GREEN}【11. flow pack - 上下文打包】${NC}\n"
+run_cmd "$MISE flow pack --files README.md Cargo.toml --root . --stats"
+run_cmd "$MISE flow pack --anchors alpha.intro --files docs/README.md --root $ALPHA"
+run_cmd "$MISE flow pack --files docs/big.txt --max-tokens 500 --root $ALPHA --stats"
+run_cmd "$MISE flow pack --files README.md --priority confidence --root ."
+
+echo -e "\n${GREEN}【12. rebuild - 重建缓存】${NC}\n"
 run_cmd "$MISE rebuild --root $ALPHA --format jsonl"
 
 echo -e "${GREEN}"

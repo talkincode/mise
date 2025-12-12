@@ -504,6 +504,70 @@ Example:\n\
         #[arg(long, default_value = "10", value_name = "N")]
         max_items: usize,
     },
+
+    /// Pack anchors and files into a context bundle for AI.
+    #[command(
+        long_about = "Bundle multiple anchors and files into a single context package.\n\
+This is useful for preparing precise, controlled context for AI assistants.\n\n\
+Features:\n\
+- Combine multiple anchors and files\n\
+- Token budget control with --max-tokens\n\
+- Priority-based truncation (by confidence or order)\n\n\
+Examples:\n\
+  mise flow pack --anchors cli.scan,core.model\n\
+  mise flow pack --anchors intro --files README.md Cargo.toml\n\
+  mise flow pack --anchors api.handler --max-tokens 8000\n"
+    )]
+    Pack {
+        /// Anchor IDs to include (comma-separated).
+        #[arg(
+            long,
+            value_name = "IDS",
+            value_delimiter = ',',
+            long_help = "Comma-separated list of anchor IDs to include.\n\n\
+Example: --anchors cli.scan,core.model,api.handler"
+        )]
+        anchors: Vec<String>,
+
+        /// File paths to include.
+        #[arg(
+            long,
+            value_name = "FILES",
+            num_args = 0..,
+            long_help = "File paths to include in the pack.\n\n\
+Example: --files README.md src/main.rs"
+        )]
+        files: Vec<String>,
+
+        /// Maximum tokens to include (estimated as chars/4).
+        #[arg(
+            long,
+            value_name = "N",
+            long_help = "Maximum number of tokens to include.\n\n\
+Tokens are estimated as characters / 4. When over budget, items are\n\
+truncated based on the priority mode."
+        )]
+        max_tokens: Option<usize>,
+
+        /// Priority mode for truncation (confidence/order).
+        #[arg(
+            long,
+            default_value = "confidence",
+            value_name = "MODE",
+            long_help = "Priority mode for truncation when over budget.\n\n\
+Supported values:\n\
+- confidence (default): keep high confidence items first\n\
+- order: keep items in the order specified"
+        )]
+        priority: String,
+
+        /// Show pack statistics on stderr.
+        #[arg(
+            long,
+            long_help = "Print pack statistics (item count, token estimate) to stderr."
+        )]
+        stats: bool,
+    },
 }
 
 /// Run the CLI with parsed arguments
@@ -602,6 +666,25 @@ pub fn run(cli: Cli) -> Result<()> {
         Commands::Flow { action } => match action {
             FlowCommands::Writing { anchor, max_items } => {
                 crate::flows::writing::run_writing(&root, &anchor, max_items, render_config)
+            }
+            FlowCommands::Pack {
+                anchors,
+                files,
+                max_tokens,
+                priority,
+                stats,
+            } => {
+                let pack_priority: crate::flows::pack::PackPriority =
+                    priority.parse().unwrap_or_default();
+                crate::flows::pack::run_pack(
+                    &root,
+                    anchors,
+                    files,
+                    max_tokens,
+                    pack_priority,
+                    stats,
+                    render_config,
+                )
             }
         },
 
