@@ -9,7 +9,7 @@ INSTALL_DIR := $(HOME)/bin
 # Cargo flags
 CARGO_FLAGS := --release
 
-.PHONY: all build release install clean test check fmt lint help ci ci-quick ci-full
+.PHONY: all build release install clean test check fmt lint help ci ci-quick ci-full coverage
 
 # Default target
 all: build
@@ -57,6 +57,16 @@ fmt:
 lint:
 	cargo clippy -- -D warnings
 
+# Run tests with coverage (requires cargo-tarpaulin)
+coverage:
+	@command -v cargo-tarpaulin >/dev/null 2>&1 || { echo "Installing cargo-tarpaulin..."; cargo install cargo-tarpaulin; }
+	cargo tarpaulin --out Html --out Json --output-dir target/tarpaulin --all-features --ignore-tests
+	@echo "Coverage report: target/tarpaulin/tarpaulin-report.html"
+
+# Run tests with coverage and open report
+coverage-open: coverage
+	@open target/tarpaulin/tarpaulin-report.html 2>/dev/null || xdg-open target/tarpaulin/tarpaulin-report.html 2>/dev/null || echo "Open target/tarpaulin/tarpaulin-report.html manually"
+
 # CI: Standard CI check (fmt + lint + check + test + build)
 ci:
 	./ci.sh
@@ -98,6 +108,8 @@ help:
 	@echo "  check        Check code without building"
 	@echo "  fmt          Format code"
 	@echo "  lint         Run clippy linter"
+	@echo "  coverage     Run tests with coverage report"
+	@echo "  coverage-open Run coverage and open HTML report"
 	@echo "  ci           Run standard CI checks"
 	@echo "  ci-quick     Run quick CI checks (no test/build)"
 	@echo "  ci-full      Run full CI checks (including fulltest)"
