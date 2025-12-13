@@ -6,8 +6,10 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use crate::backends::ast_grep::get_ast_grep_command;
 use crate::backends::scan::{scan_files, ScanOptions};
@@ -285,6 +287,119 @@ impl std::str::FromStr for DepsFormat {
             _ => Err(format!("Unknown deps format: {}", s)),
         }
     }
+}
+
+/// Image output format
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageFormat {
+    Png,
+    Svg,
+    Pdf,
+}
+
+impl ImageFormat {
+    /// Detect format from file extension
+    pub fn from_path(path: &Path) -> Option<Self> {
+        match path.extension().and_then(|e| e.to_str()) {
+            Some("png") => Some(ImageFormat::Png),
+            Some("svg") => Some(ImageFormat::Svg),
+            Some("pdf") => Some(ImageFormat::Pdf),
+            _ => None,
+        }
+    }
+
+    /// Get format string for graphviz
+    pub fn dot_format(&self) -> &'static str {
+        match self {
+            ImageFormat::Png => "png",
+            ImageFormat::Svg => "svg",
+            ImageFormat::Pdf => "pdf",
+        }
+    }
+
+    /// Get format string for mermaid-cli
+    pub fn mermaid_format(&self) -> &'static str {
+        match self {
+            ImageFormat::Png => "png",
+            ImageFormat::Svg => "svg",
+            ImageFormat::Pdf => "pdf",
+        }
+    }
+}
+
+/// Check if graphviz (dot) is available
+pub fn is_graphviz_available() -> bool {
+    command_exists("dot")
+}
+
+/// Check if mermaid-cli (mmdc) is available
+pub fn is_mermaid_cli_available() -> bool {
+    command_exists("mmdc")
+}
+
+/// Render DOT content to image using graphviz
+pub fn render_dot_to_image(
+    dot_content: &str,
+    output_path: &Path,
+    format: ImageFormat,
+) -> Result<()> {
+    let mut cmd = Command::new("dot");
+    cmd.arg(format!("-T{}", format.dot_format()))
+        .arg("-o")
+        .arg(output_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd.spawn()?;
+
+    if let Some(stdin) = child.stdin.as_mut() {
+        stdin.write_all(dot_content.as_bytes())?;
+    }
+
+    let output = child.wait_with_output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("graphviz (dot) failed: {}", stderr);
+    }
+
+    Ok(())
+}
+
+/// Render Mermaid content to image using mermaid-cli
+pub fn render_mermaid_to_image(
+    mermaid_content: &str,
+    output_path: &Path,
+    format: ImageFormat,
+) -> Result<()> {
+    // mermaid-cli needs a temporary input file
+    let temp_dir = std::env::temp_dir();
+    let temp_input = temp_dir.join("mise_mermaid_temp.mmd");
+
+    fs::write(&temp_input, mermaid_content)?;
+
+    let mut cmd = Command::new("mmdc");
+    cmd.arg("-i")
+        .arg(&temp_input)
+        .arg("-o")
+        .arg(output_path)
+        .arg("-e")
+        .arg(format.mermaid_format())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let output = cmd.output()?;
+
+    // Clean up temp file
+    let _ = fs::remove_file(&temp_input);
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("mermaid-cli (mmdc) failed: {}", stderr);
+    }
+
+    Ok(())
 }
 
 /// Parse import statements from a file using ast-grep
@@ -1053,6 +1168,7 @@ pub fn run_deps(
     file: Option<&Path>,
     reverse: bool,
     format: DepsFormat,
+    output: Option<&Path>,
     config: RenderConfig,
 ) -> Result<()> {
     // Check if ast-grep is available
@@ -1084,8 +1200,104 @@ pub fn run_deps(
     // Check for circular dependencies
     let cycles = graph.find_cycles();
 
-    // Output based on format
-    let output = match format {
+    // Handle image output
+    if let Some(output_path) = output {
+        let img_format = match ImageFormat::from_path(output_path) {
+            Some(f) => f,
+            None => {
+                let mut result_set = ResultSet::new();
+                result_set.push(ResultItem::error(MiseError::new(
+                    "UNSUPPORTED_IMAGE_FORMAT",
+                    "Output file must have .png, .svg, or .pdf extension",
+                )));
+                let renderer = Renderer::with_config(config);
+                println!("{}", renderer.render(&result_set));
+                return Ok(());
+            }
+        };
+
+        // Determine which format to use based on available tools and user preference
+        let use_format = match format {
+            DepsFormat::Dot => {
+                if !is_graphviz_available() {
+                    let mut result_set = ResultSet::new();
+                    result_set.push(ResultItem::error(MiseError::new(
+                        "GRAPHVIZ_NOT_FOUND",
+                        "graphviz (dot) is not installed. Install: brew install graphviz",
+                    )));
+                    let renderer = Renderer::with_config(config);
+                    println!("{}", renderer.render(&result_set));
+                    return Ok(());
+                }
+                DepsFormat::Dot
+            }
+            DepsFormat::Mermaid => {
+                if !is_mermaid_cli_available() {
+                    let mut result_set = ResultSet::new();
+                    result_set.push(ResultItem::error(MiseError::new(
+                        "MERMAID_CLI_NOT_FOUND",
+                        "mermaid-cli (mmdc) is not installed. Install: npm install -g @mermaid-js/mermaid-cli",
+                    )));
+                    let renderer = Renderer::with_config(config);
+                    println!("{}", renderer.render(&result_set));
+                    return Ok(());
+                }
+                DepsFormat::Mermaid
+            }
+            _ => {
+                // Auto-select: prefer graphviz over mermaid
+                if is_graphviz_available() {
+                    DepsFormat::Dot
+                } else if is_mermaid_cli_available() {
+                    DepsFormat::Mermaid
+                } else {
+                    let mut result_set = ResultSet::new();
+                    result_set.push(ResultItem::error(MiseError::new(
+                        "NO_GRAPH_RENDERER",
+                        "Neither graphviz (dot) nor mermaid-cli (mmdc) is installed.\n\
+Install graphviz: brew install graphviz\n\
+Install mermaid-cli: npm install -g @mermaid-js/mermaid-cli",
+                    )));
+                    let renderer = Renderer::with_config(config);
+                    println!("{}", renderer.render(&result_set));
+                    return Ok(());
+                }
+            }
+        };
+
+        // Generate graph content and render to image
+        let result = match use_format {
+            DepsFormat::Dot => {
+                let dot_content = format_dot(&graph, file_str.as_deref());
+                render_dot_to_image(&dot_content, output_path, img_format)
+            }
+            DepsFormat::Mermaid => {
+                let mermaid_content = format_mermaid(&graph, file_str.as_deref());
+                render_mermaid_to_image(&mermaid_content, output_path, img_format)
+            }
+            _ => unreachable!(),
+        };
+
+        match result {
+            Ok(()) => {
+                eprintln!("✓ Graph rendered to: {}", output_path.display());
+                return Ok(());
+            }
+            Err(e) => {
+                let mut result_set = ResultSet::new();
+                result_set.push(ResultItem::error(MiseError::new(
+                    "RENDER_FAILED",
+                    format!("Failed to render graph: {}", e),
+                )));
+                let renderer = Renderer::with_config(config);
+                println!("{}", renderer.render(&result_set));
+                return Ok(());
+            }
+        }
+    }
+
+    // Output based on format (text output)
+    let output_text = match format {
         DepsFormat::Dot => format_dot(&graph, file_str.as_deref()),
         DepsFormat::Mermaid => format_mermaid(&graph, file_str.as_deref()),
         DepsFormat::Tree => {
@@ -1111,7 +1323,7 @@ pub fn run_deps(
         }
     };
 
-    println!("{}", output);
+    println!("{}", output_text);
     Ok(())
 }
 
@@ -1415,5 +1627,86 @@ mod tests {
         let deps = graph.get_forward_deps("main.rs");
         // Should be deduplicated and sorted
         assert_eq!(deps, vec!["a.rs".to_string(), "b.rs".to_string()]);
+    }
+
+    // ==================== Image Format Tests ====================
+
+    #[test]
+    fn test_image_format_from_path() {
+        assert_eq!(
+            ImageFormat::from_path(Path::new("output.png")),
+            Some(ImageFormat::Png)
+        );
+        assert_eq!(
+            ImageFormat::from_path(Path::new("output.svg")),
+            Some(ImageFormat::Svg)
+        );
+        assert_eq!(
+            ImageFormat::from_path(Path::new("output.pdf")),
+            Some(ImageFormat::Pdf)
+        );
+        assert_eq!(ImageFormat::from_path(Path::new("output.txt")), None);
+        assert_eq!(ImageFormat::from_path(Path::new("output")), None);
+    }
+
+    #[test]
+    fn test_image_format_dot_format() {
+        assert_eq!(ImageFormat::Png.dot_format(), "png");
+        assert_eq!(ImageFormat::Svg.dot_format(), "svg");
+        assert_eq!(ImageFormat::Pdf.dot_format(), "pdf");
+    }
+
+    #[test]
+    fn test_image_format_mermaid_format() {
+        assert_eq!(ImageFormat::Png.mermaid_format(), "png");
+        assert_eq!(ImageFormat::Svg.mermaid_format(), "svg");
+        assert_eq!(ImageFormat::Pdf.mermaid_format(), "pdf");
+    }
+
+    #[test]
+    fn test_is_graphviz_available() {
+        // This test depends on the system having graphviz installed or not
+        // We just ensure the function doesn't panic
+        let _ = is_graphviz_available();
+    }
+
+    #[test]
+    fn test_is_mermaid_cli_available() {
+        // This test depends on the system having mermaid-cli installed or not
+        // We just ensure the function doesn't panic
+        let _ = is_mermaid_cli_available();
+    }
+
+    #[test]
+    fn test_render_dot_to_image_requires_graphviz() {
+        // Only run actual render test if graphviz is available
+        if is_graphviz_available() {
+            let dot_content = r#"digraph test {
+    A -> B;
+}"#;
+            let temp = tempfile::tempdir().unwrap();
+            let output_path = temp.path().join("test.png");
+
+            let result = render_dot_to_image(dot_content, &output_path, ImageFormat::Png);
+            assert!(result.is_ok());
+            assert!(output_path.exists());
+        }
+    }
+
+    #[test]
+    fn test_render_mermaid_to_image_requires_mmdc() {
+        // Only run actual render test if mermaid-cli is available
+        if is_mermaid_cli_available() {
+            let mermaid_content = r#"graph LR
+    A --> B
+"#;
+            let temp = tempfile::tempdir().unwrap();
+            let output_path = temp.path().join("test.svg");
+
+            let result = render_mermaid_to_image(mermaid_content, &output_path, ImageFormat::Svg);
+            // Note: This might fail if puppeteer is not properly configured
+            // So we just check it doesn't panic
+            let _ = result;
+        }
     }
 }

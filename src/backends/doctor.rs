@@ -121,6 +121,36 @@ pub fn check_dependencies() -> Vec<DependencyStatus> {
         notes: Some("Install: brew install watchexec / cargo install watchexec-cli".to_string()),
     });
 
+    // graphviz (optional, for deps graph rendering)
+    let graphviz_available = command_exists("dot");
+    deps.push(DependencyStatus {
+        name: "graphviz".to_string(),
+        available: graphviz_available,
+        command: if graphviz_available {
+            Some("dot".to_string())
+        } else {
+            None
+        },
+        required: false,
+        notes: Some("Install: brew install graphviz (for deps -o output.png)".to_string()),
+    });
+
+    // mermaid-cli (optional, for deps graph rendering)
+    let mermaid_cli_available = command_exists("mmdc");
+    deps.push(DependencyStatus {
+        name: "mermaid-cli".to_string(),
+        available: mermaid_cli_available,
+        command: if mermaid_cli_available {
+            Some("mmdc".to_string())
+        } else {
+            None
+        },
+        required: false,
+        notes: Some(
+            "Install: npm install -g @mermaid-js/mermaid-cli (for deps -o output.svg)".to_string(),
+        ),
+    });
+
     // tiktoken models (optional, for accurate token counting)
     for (model_name, available, error) in check_all_tiktoken_models() {
         deps.push(DependencyStatus {

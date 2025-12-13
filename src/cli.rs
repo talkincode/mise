@@ -420,17 +420,22 @@ Supports: Rust (.rs), TypeScript (.ts/.tsx), JavaScript (.js/.jsx), Python (.py)
 Output formats:
 - jsonl (default): one JSON object per file
 - json: complete JSON array
-- dot: Graphviz DOT format (pipe to `dot -Tpng` for visualization)
-- mermaid: Mermaid diagram syntax (embed in Markdown)
+- dot: Graphviz DOT format
+- mermaid: Mermaid diagram syntax
 - tree: ASCII tree view (requires a specific file)
 - table: ASCII table summary
+
+Graph rendering (with -o/--output):
+- Requires graphviz (dot) for DOT format
+- Requires mermaid-cli (mmdc) for Mermaid format
 
 Examples:
     mise deps src/cli.rs                    # What does cli.rs depend on?
     mise deps src/cli.rs --reverse          # What depends on cli.rs?
-    mise deps --deps-format dot | dot -Tpng -o deps.png
-    mise deps --deps-format mermaid >> README.md
-    mise deps src/cli.rs --deps-format tree
+    mise deps --deps-format dot -o deps.png # Render DOT to PNG
+    mise deps --deps-format mermaid -o deps.svg  # Render Mermaid to SVG
+    mise deps -o deps.png                   # Auto-select format and render
+    mise deps --deps-format dot | dot -Tpng -o deps.png  # Manual pipe
 "#
     )]
     Deps {
@@ -460,6 +465,25 @@ Supported values:\n\
 - table: ASCII table summary"
         )]
         deps_format: String,
+
+        /// Render graph to image file (png/svg/pdf).
+        ///
+        /// Requires graphviz (dot) for DOT format or mermaid-cli (mmdc) for Mermaid format.
+        #[arg(
+            short,
+            long,
+            value_name = "FILE",
+            long_help = "Render the dependency graph to an image file.\n\n\
+Supported extensions:\n\
+- .png, .svg, .pdf (for dot format, requires graphviz)\n\
+- .png, .svg, .pdf (for mermaid format, requires mermaid-cli)\n\n\
+Examples:\n\
+    mise deps --deps-format dot -o deps.png\n\
+    mise deps --deps-format mermaid -o deps.svg\n\n\
+Note: If deps-format is not dot or mermaid, it will be auto-selected based on\n\
+available tools (graphviz preferred over mermaid-cli)."
+        )]
+        output: Option<PathBuf>,
     },
 
     /// Analyze the impact of code changes.
@@ -1185,6 +1209,7 @@ pub fn run(cli: Cli) -> Result<()> {
             file,
             reverse,
             deps_format,
+            output,
         } => {
             let deps_fmt: crate::backends::deps::DepsFormat =
                 deps_format.parse().unwrap_or_default();
@@ -1193,6 +1218,7 @@ pub fn run(cli: Cli) -> Result<()> {
                 file.as_deref(),
                 reverse,
                 deps_fmt,
+                output.as_deref(),
                 render_config,
             )
         }
