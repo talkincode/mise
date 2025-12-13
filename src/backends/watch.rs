@@ -205,17 +205,6 @@ mod tests {
         assert!(DEFAULT_IGNORES.contains(&"build/"));
     }
 
-    #[test]
-    fn test_run_watch_without_watchexec() {
-        // Test error handling when watchexec is not available
-        // This test may or may not have watchexec installed
-        let temp = tempfile::tempdir().unwrap();
-        let opts = WatchOptions::default();
-        let config = RenderConfig::default();
-
-        // We just verify it doesn't panic
-        let result = run_watch(temp.path(), opts, config);
-        // Result depends on whether watchexec is installed
-        let _ = result;
-    }
+    // Note: run_watch cannot be unit tested because it spawns an interactive process
+    // Integration testing would require mocking watchexec
 }
