@@ -1037,6 +1037,38 @@ fn deps_to_result_set(
     result_set
 }
 
+/// Public API for MCP: analyze deps and return ResultSet
+pub fn deps_to_result_set_public(
+    root: &Path,
+    file: Option<&Path>,
+    reverse: bool,
+) -> Result<ResultSet> {
+    // Check if ast-grep is available
+    if get_ast_grep_command().is_none() && !command_exists("rg") {
+        let mut result_set = ResultSet::new();
+        result_set.push(ResultItem::error(MiseError::new(
+            "DEPS_TOOL_NOT_FOUND",
+            "Neither ast-grep (sg) nor ripgrep (rg) is installed. Please install at least one.",
+        )));
+        return Ok(result_set);
+    }
+
+    // Analyze dependencies
+    let graph = analyze_deps(root, None)?;
+
+    // Convert file path to relative string
+    let file_str = file.map(|f| {
+        if f.is_absolute() {
+            make_relative(f, root).unwrap_or_else(|| normalize_path(f))
+        } else {
+            normalize_path(f)
+        }
+    });
+
+    let cycles = graph.find_cycles();
+    Ok(deps_to_result_set(&graph, file_str.as_deref(), reverse, &cycles))
+}
+
 /// Run the deps command
 pub fn run_deps(
     root: &Path,

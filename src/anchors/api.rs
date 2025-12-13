@@ -128,6 +128,11 @@ pub fn run_list(root: &Path, tag: Option<&str>, config: RenderConfig) -> Result<
     Ok(())
 }
 
+/// Alias for MCP compatibility
+pub fn list_to_result_set(root: &Path, tag: Option<&str>) -> Result<ResultSet> {
+    list_anchors(root, tag)
+}
+
 /// Run anchor get command
 pub fn run_get(
     root: &Path,
@@ -141,6 +146,15 @@ pub fn run_get(
     println!("{}", renderer.render(&result_set));
 
     Ok(())
+}
+
+/// Alias for MCP compatibility
+pub fn get_to_result_set(
+    root: &Path,
+    id: &str,
+    with_neighbors: Option<usize>,
+) -> Result<ResultSet> {
+    get_anchor(root, id, with_neighbors)
 }
 
 #[cfg(test)]

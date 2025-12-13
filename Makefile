@@ -8,19 +8,20 @@ INSTALL_DIR := $(HOME)/bin
 
 # Cargo flags
 CARGO_FLAGS := --release
+FEATURES := --features mcp
 
 .PHONY: all build release install clean test check fmt lint help
 
 # Default target
 all: build
 
-# Build debug version
+# Build debug version (with mcp feature)
 build:
-	cargo build
+	cargo build $(FEATURES)
 
-# Build release version
+# Build release version (with mcp feature)
 release:
-	cargo build $(CARGO_FLAGS)
+	cargo build $(CARGO_FLAGS) $(FEATURES)
 
 # Build and install to ~/bin
 install: release

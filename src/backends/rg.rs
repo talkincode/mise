@@ -112,6 +112,15 @@ pub fn run_match(
     Ok(())
 }
 
+/// Alias for MCP compatibility
+pub fn match_to_result_set(
+    root: &Path,
+    pattern: &str,
+    scopes: &[impl AsRef<Path>],
+) -> Result<ResultSet> {
+    run_rg(root, pattern, scopes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

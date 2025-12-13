@@ -306,11 +306,11 @@ pub fn run_pack(
     config: RenderConfig,
 ) -> Result<()> {
     let opts = PackOptions {
-        anchors,
-        files,
+        anchors: anchors.clone(),
+        files: files.clone(),
         max_tokens,
-        priority,
-        token_model,
+        priority: priority.clone(),
+        token_model: token_model.clone(),
     };
 
     let (result_set, stats) = pack_context(root, opts)?;
@@ -334,6 +334,27 @@ pub fn run_pack(
     println!("{}", renderer.render(&result_set));
 
     Ok(())
+}
+
+/// Public API for MCP: pack and return ResultSet
+pub fn pack_to_result_set(
+    root: &Path,
+    anchors: Vec<String>,
+    files: Vec<String>,
+    max_tokens: Option<usize>,
+    priority: PackPriority,
+    token_model: TokenModel,
+) -> Result<ResultSet> {
+    let opts = PackOptions {
+        anchors,
+        files,
+        max_tokens,
+        priority,
+        token_model,
+    };
+
+    let (result_set, _stats) = pack_context(root, opts)?;
+    Ok(result_set)
 }
 
 #[cfg(test)]

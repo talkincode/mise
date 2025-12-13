@@ -109,6 +109,16 @@ pub fn run_find(
     scope: Option<&Path>,
     config: RenderConfig,
 ) -> Result<()> {
+    let result_set = find_files(root, pattern, scope)?;
+
+    let renderer = Renderer::with_config(config);
+    println!("{}", renderer.render(&result_set));
+
+    Ok(())
+}
+
+/// Find files by pattern (for MCP and programmatic use)
+pub fn find_files(root: &Path, pattern: Option<&str>, scope: Option<&Path>) -> Result<ResultSet> {
     let mut result_set = scan_files(root, scope, None, false, true, Some("file"))?;
 
     // Filter by pattern if provided
@@ -122,10 +132,27 @@ pub fn run_find(
         });
     }
 
-    let renderer = Renderer::with_config(config);
-    println!("{}", renderer.render(&result_set));
+    Ok(result_set)
+}
 
-    Ok(())
+/// Aliases for MCP compatibility
+pub fn scan_to_result_set(
+    root: &Path,
+    scope: Option<&Path>,
+    max_depth: Option<usize>,
+    hidden: bool,
+    ignore: bool,
+    file_type: Option<&str>,
+) -> Result<ResultSet> {
+    scan_files(root, scope, max_depth, hidden, ignore, file_type)
+}
+
+pub fn find_to_result_set(
+    root: &Path,
+    pattern: Option<&str>,
+    scope: Option<&Path>,
+) -> Result<ResultSet> {
+    find_files(root, pattern, scope)
 }
 
 #[cfg(test)]
@@ -170,7 +197,8 @@ mod tests {
         File::create(subdir.join("main.rs")).unwrap();
         File::create(temp.path().join("README.md")).unwrap();
 
-        let result = scan_files(temp.path(), Some(&subdir), None, false, true, Some("file")).unwrap();
+        let result =
+            scan_files(temp.path(), Some(&subdir), None, false, true, Some("file")).unwrap();
         assert_eq!(result.len(), 1);
         assert!(result.items[0].path.as_ref().unwrap().contains("main.rs"));
     }
@@ -197,11 +225,16 @@ mod tests {
         File::create(temp.path().join("visible.txt")).unwrap();
 
         // Without hidden=true, should skip hidden files
-        let result_no_hidden = scan_files(temp.path(), None, None, false, true, Some("file")).unwrap();
-        assert!(result_no_hidden.items.iter().all(|i| !i.path.as_ref().unwrap().starts_with('.')));
+        let result_no_hidden =
+            scan_files(temp.path(), None, None, false, true, Some("file")).unwrap();
+        assert!(result_no_hidden
+            .items
+            .iter()
+            .all(|i| !i.path.as_ref().unwrap().starts_with('.')));
 
         // With hidden=true, should include hidden files
-        let result_with_hidden = scan_files(temp.path(), None, None, true, true, Some("file")).unwrap();
+        let result_with_hidden =
+            scan_files(temp.path(), None, None, true, true, Some("file")).unwrap();
         assert!(result_with_hidden.len() >= result_no_hidden.len());
     }
 
@@ -213,7 +246,7 @@ mod tests {
 
         let result = scan_files(temp.path(), None, None, false, true, Some("file")).unwrap();
         assert_eq!(result.len(), 1);
-        
+
         let item = &result.items[0];
         assert!(item.meta.size.is_some());
         assert!(item.meta.mtime_ms.is_some());
@@ -239,8 +272,12 @@ mod tests {
         File::create(temp.path().join("m_file.txt")).unwrap();
 
         let result = scan_files(temp.path(), None, None, false, true, Some("file")).unwrap();
-        let paths: Vec<_> = result.items.iter().filter_map(|i| i.path.as_ref()).collect();
-        
+        let paths: Vec<_> = result
+            .items
+            .iter()
+            .filter_map(|i| i.path.as_ref())
+            .collect();
+
         let mut sorted_paths = paths.clone();
         sorted_paths.sort();
         assert_eq!(paths, sorted_paths);
@@ -310,25 +347,29 @@ mod tests {
     #[test]
     fn test_scan_gitignore_respected() {
         let temp = tempdir().unwrap();
-        
+
         // Initialize git repo to make .gitignore work
         std::process::Command::new("git")
             .arg("init")
             .current_dir(temp.path())
             .output()
             .ok();
-        
+
         // Create .gitignore
         std::fs::write(temp.path().join(".gitignore"), "ignored.txt\n").unwrap();
-        
+
         // Create ignored and non-ignored files
         File::create(temp.path().join("ignored.txt")).unwrap();
         File::create(temp.path().join("included.txt")).unwrap();
 
         // With ignore=true, should skip ignored files
         let result = scan_files(temp.path(), None, None, false, true, Some("file")).unwrap();
-        let paths: Vec<_> = result.items.iter().filter_map(|i| i.path.as_ref()).collect();
-        
+        let paths: Vec<_> = result
+            .items
+            .iter()
+            .filter_map(|i| i.path.as_ref())
+            .collect();
+
         // Should contain included.txt
         assert!(paths.iter().any(|p| p.contains("included.txt")));
         // May or may not contain ignored.txt depending on git init success
@@ -337,15 +378,19 @@ mod tests {
     #[test]
     fn test_scan_without_gitignore() {
         let temp = tempdir().unwrap();
-        
+
         // Create .gitignore
         std::fs::write(temp.path().join(".gitignore"), "ignored.txt\n").unwrap();
         File::create(temp.path().join("ignored.txt")).unwrap();
 
         // With ignore=false, should include all files
         let result = scan_files(temp.path(), None, None, false, false, Some("file")).unwrap();
-        let paths: Vec<_> = result.items.iter().filter_map(|i| i.path.as_ref()).collect();
-        
+        let paths: Vec<_> = result
+            .items
+            .iter()
+            .filter_map(|i| i.path.as_ref())
+            .collect();
+
         // Should contain the "ignored" file since gitignore is disabled
         // Note: files starting with . are still hidden by default
         assert!(paths.iter().any(|p| p.contains("ignored.txt")));
@@ -360,9 +405,11 @@ mod tests {
 
         // Without max_depth, should find deep files
         let result = scan_files(temp.path(), None, None, false, true, Some("file")).unwrap();
-        assert!(result.items.iter().any(|i| 
-            i.path.as_ref().map(|p| p.contains("deep.txt")).unwrap_or(false)
-        ));
+        assert!(result.items.iter().any(|i| i
+            .path
+            .as_ref()
+            .map(|p| p.contains("deep.txt"))
+            .unwrap_or(false)));
     }
 
     #[test]
@@ -371,8 +418,10 @@ mod tests {
         fs::create_dir(temp.path().join("empty_subdir")).unwrap();
 
         let result = scan_files(temp.path(), None, None, false, true, Some("dir")).unwrap();
-        assert!(result.items.iter().any(|i|
-            i.path.as_ref().map(|p| p.contains("empty_subdir")).unwrap_or(false)
-        ));
+        assert!(result.items.iter().any(|i| i
+            .path
+            .as_ref()
+            .map(|p| p.contains("empty_subdir"))
+            .unwrap_or(false)));
     }
 }

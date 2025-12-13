@@ -110,6 +110,15 @@ pub fn run_ast(
     Ok(())
 }
 
+/// Alias for MCP compatibility
+pub fn ast_to_result_set(
+    root: &Path,
+    pattern: &str,
+    scopes: &[impl AsRef<Path>],
+) -> Result<ResultSet> {
+    run_ast_grep(root, pattern, scopes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

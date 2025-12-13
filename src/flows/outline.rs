@@ -404,6 +404,23 @@ fn outline_to_result_set(outline: &ProjectOutline) -> ResultSet {
     result_set
 }
 
+/// Public API for MCP: generate outline and return as JSON
+pub fn outline_to_result(
+    root: &Path,
+    scope: Option<&Path>,
+    tag_filter: Option<&str>,
+    extensions: Option<Vec<String>>,
+    token_model: TokenModel,
+) -> Result<serde_json::Value> {
+    let ext_refs: Option<Vec<&str>> = extensions
+        .as_ref()
+        .map(|v| v.iter().map(|s| s.as_str()).collect());
+    let ext_slice: Option<&[&str]> = ext_refs.as_deref();
+
+    let outline = generate_outline(root, scope, tag_filter, ext_slice, token_model)?;
+    Ok(serde_json::to_value(outline)?)
+}
+
 /// Run the outline command
 pub fn run_outline(
     root: &Path,

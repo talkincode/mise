@@ -606,6 +606,33 @@ pub fn run_impact(
     Ok(())
 }
 
+/// Public API for MCP: analyze impact and return JSON
+pub fn impact_to_result(
+    root: &Path,
+    staged: bool,
+    commit: Option<&str>,
+    diff: Option<&str>,
+    max_depth: usize,
+) -> Result<serde_json::Value> {
+    // Check if git is available
+    if !command_exists("git") {
+        return Ok(serde_json::json!({
+            "error": {
+                "code": "GIT_NOT_FOUND",
+                "message": "git is not installed. Please install git to use impact analysis."
+            }
+        }));
+    }
+
+    // Determine diff source
+    let source = DiffSource::from_args(staged, commit, diff);
+
+    // Analyze impact
+    let analysis = analyze_impact(root, source, max_depth)?;
+
+    Ok(serde_json::to_value(analysis)?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

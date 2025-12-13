@@ -270,6 +270,16 @@ fn is_text_file(path: &Path) -> bool {
 
 /// Run the lint command
 pub fn run_lint(root: &Path, config: RenderConfig) -> Result<()> {
+    let result_set = lint_to_result_set(root)?;
+
+    let renderer = Renderer::with_config(config);
+    println!("{}", renderer.render(&result_set));
+
+    Ok(())
+}
+
+/// Public API for MCP: lint anchors and return ResultSet
+pub fn lint_to_result_set(root: &Path) -> Result<ResultSet> {
     let issues = lint_anchors(root)?;
 
     let mut result_set = ResultSet::new();
@@ -277,10 +287,7 @@ pub fn run_lint(root: &Path, config: RenderConfig) -> Result<()> {
         result_set.push(issue.to_result_item());
     }
 
-    let renderer = Renderer::with_config(config);
-    println!("{}", renderer.render(&result_set));
-
-    Ok(())
+    Ok(result_set)
 }
 
 #[cfg(test)]

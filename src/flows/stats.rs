@@ -286,6 +286,23 @@ impl std::str::FromStr for StatsFormat {
     }
 }
 
+/// Public API for MCP: calculate stats and return as JSON
+pub fn stats_to_result(
+    root: &Path,
+    scope: Option<&Path>,
+    extensions: Option<Vec<String>>,
+    top_n: usize,
+    token_model: TokenModel,
+) -> Result<serde_json::Value> {
+    let ext_refs: Option<Vec<&str>> = extensions
+        .as_ref()
+        .map(|v| v.iter().map(|s| s.as_str()).collect());
+    let ext_slice: Option<&[&str]> = ext_refs.as_deref();
+
+    let stats = calculate_project_stats(root, scope, ext_slice, top_n, token_model)?;
+    Ok(serde_json::to_value(stats)?)
+}
+
 /// Run the stats command
 pub fn run_stats(
     root: &Path,

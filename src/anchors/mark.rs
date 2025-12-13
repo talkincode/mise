@@ -326,6 +326,25 @@ pub fn run_mark(
     dry_run: bool,
     config: RenderConfig,
 ) -> Result<()> {
+    let result_set = mark_to_result_set(root, path, start_line, end_line, id, tags, version, dry_run)?;
+
+    let renderer = Renderer::with_config(config);
+    println!("{}", renderer.render(&result_set));
+
+    Ok(())
+}
+
+/// Public API for MCP: mark and return ResultSet
+pub fn mark_to_result_set(
+    root: &Path,
+    path: &str,
+    start_line: u32,
+    end_line: u32,
+    id: &str,
+    tags: Vec<String>,
+    version: u32,
+    dry_run: bool,
+) -> Result<ResultSet> {
     let spec = MarkSpec {
         path: path.to_string(),
         start_line,
@@ -339,10 +358,7 @@ pub fn run_mark(
     let mut result_set = ResultSet::new();
     result_set.push(result.to_result_item());
 
-    let renderer = Renderer::with_config(config);
-    println!("{}", renderer.render(&result_set));
-
-    Ok(())
+    Ok(result_set)
 }
 
 /// Run batch mark command from JSON input
@@ -448,6 +464,21 @@ pub fn run_unmark(
     dry_run: bool,
     config: RenderConfig,
 ) -> Result<()> {
+    let result_set = unmark_to_result_set(root, path, anchor_id, dry_run)?;
+
+    let renderer = Renderer::with_config(config);
+    println!("{}", renderer.render(&result_set));
+
+    Ok(())
+}
+
+/// Public API for MCP: unmark and return ResultSet
+pub fn unmark_to_result_set(
+    root: &Path,
+    path: &str,
+    anchor_id: &str,
+    dry_run: bool,
+) -> Result<ResultSet> {
     let file_path = root.join(path);
 
     let content =
@@ -468,10 +499,7 @@ pub fn run_unmark(
     item.excerpt = Some(format!("Anchor '{}' removed successfully", anchor_id));
     result_set.push(item);
 
-    let renderer = Renderer::with_config(config);
-    println!("{}", renderer.render(&result_set));
-
-    Ok(())
+    Ok(result_set)
 }
 
 #[cfg(test)]

@@ -90,6 +90,16 @@ pub fn is_cache_valid(root: &Path) -> bool {
 
 /// Rebuild the entire cache
 pub fn run_rebuild(root: &Path, config: RenderConfig) -> Result<()> {
+    let result_set = rebuild_to_result_set(root)?;
+
+    let renderer = Renderer::with_config(config);
+    println!("{}", renderer.render(&result_set));
+
+    Ok(())
+}
+
+/// Public API for MCP: rebuild cache and return ResultSet
+pub fn rebuild_to_result_set(root: &Path) -> Result<ResultSet> {
     let cache_path = ensure_cache_dir(root)?;
 
     // Generate files.jsonl using scan
@@ -117,10 +127,7 @@ pub fn run_rebuild(root: &Path, config: RenderConfig) -> Result<()> {
     result_set.push(ResultItem::file(".mise/anchors.jsonl"));
     result_set.push(ResultItem::file(".mise/meta.json"));
 
-    let renderer = Renderer::with_config(config);
-    println!("{}", renderer.render(&result_set));
-
-    Ok(())
+    Ok(result_set)
 }
 
 /// Clear the cache

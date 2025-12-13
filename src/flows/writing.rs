@@ -30,6 +30,15 @@ pub fn run_writing(
     Ok(())
 }
 
+/// Alias for MCP compatibility
+pub fn writing_to_result_set(
+    root: &Path,
+    anchor_id: &str,
+    max_items: usize,
+) -> Result<ResultSet> {
+    gather_writing_evidence(root, anchor_id, max_items)
+}
+
 /// Gather evidence for a writing task
 pub fn gather_writing_evidence(
     root: &Path,

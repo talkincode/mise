@@ -148,12 +148,7 @@ pub fn check_dependencies() -> Vec<DependencyStatus> {
 
 /// Run the doctor command
 pub fn run_doctor(config: RenderConfig) -> Result<()> {
-    let deps = check_dependencies();
-
-    let mut result_set = ResultSet::new();
-    for dep in deps {
-        result_set.push(dep.to_result_item());
-    }
+    let result_set = doctor_to_result_set()?;
 
     let renderer = Renderer::with_config(config);
     println!("{}", renderer.render(&result_set));
@@ -169,6 +164,18 @@ pub fn run_doctor(config: RenderConfig) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Public API for MCP: check dependencies and return ResultSet
+pub fn doctor_to_result_set() -> Result<ResultSet> {
+    let deps = check_dependencies();
+
+    let mut result_set = ResultSet::new();
+    for dep in deps {
+        result_set.push(dep.to_result_item());
+    }
+
+    Ok(result_set)
 }
 
 #[cfg(test)]

@@ -122,16 +122,28 @@ pub fn run_extract(
     max_bytes: usize,
     config: RenderConfig,
 ) -> Result<()> {
+    let result_set = extract_to_result_set(root, path, lines, max_bytes)?;
+
+    let renderer = Renderer::with_config(config);
+    println!("{}", renderer.render(&result_set));
+
+    Ok(())
+}
+
+/// Extract to ResultSet (for MCP and programmatic use)
+pub fn extract_to_result_set(
+    root: &Path,
+    path: &Path,
+    lines: &str,
+    max_bytes: usize,
+) -> Result<ResultSet> {
     let (start, end) = parse_line_range(lines)?;
     let item = extract_lines(root, path, start, end, max_bytes)?;
 
     let mut result_set = ResultSet::new();
     result_set.push(item);
 
-    let renderer = Renderer::with_config(config);
-    println!("{}", renderer.render(&result_set));
-
-    Ok(())
+    Ok(result_set)
 }
 
 #[cfg(test)]
@@ -235,7 +247,9 @@ mod tests {
     fn test_extract_lines_with_absolute_path() {
         let temp = tempdir().unwrap();
         let file_path = temp.path().join("test.txt");
-        let abs_path = file_path.canonicalize().unwrap_or_else(|_| file_path.clone());
+        let abs_path = file_path
+            .canonicalize()
+            .unwrap_or_else(|_| file_path.clone());
 
         let mut file = File::create(&file_path).unwrap();
         writeln!(file, "content").unwrap();
