@@ -137,7 +137,7 @@ do_build() {
     info "运行 cargo build --release --all-features..."
     cargo build --release --all-features
     
-    local binary="target/release/mise"
+    local binary="target/release/misec"
     if [ -f "$binary" ]; then
         local size=$(du -h "$binary" | cut -f1)
         success "构建完成: $binary ($size)"

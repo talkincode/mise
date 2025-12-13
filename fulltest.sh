@@ -4,7 +4,7 @@
 
 set -e
 
-MISE="./target/release/mise"
+MISE="./target/release/misec"
 ALPHA="tests/samples/sample_project_alpha"
 BETA="tests/samples/sample_project_beta"
 INVALID="tests/samples/anchors_invalid"
