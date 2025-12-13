@@ -292,10 +292,19 @@ mod tests {
 
     #[test]
     fn test_output_format_parse_case_insensitive() {
-        assert_eq!("JSONL".parse::<OutputFormat>().unwrap(), OutputFormat::Jsonl);
+        assert_eq!(
+            "JSONL".parse::<OutputFormat>().unwrap(),
+            OutputFormat::Jsonl
+        );
         assert_eq!("JSON".parse::<OutputFormat>().unwrap(), OutputFormat::Json);
-        assert_eq!("MD".parse::<OutputFormat>().unwrap(), OutputFormat::Markdown);
-        assert_eq!("MARKDOWN".parse::<OutputFormat>().unwrap(), OutputFormat::Markdown);
+        assert_eq!(
+            "MD".parse::<OutputFormat>().unwrap(),
+            OutputFormat::Markdown
+        );
+        assert_eq!(
+            "MARKDOWN".parse::<OutputFormat>().unwrap(),
+            OutputFormat::Markdown
+        );
         assert_eq!("RAW".parse::<OutputFormat>().unwrap(), OutputFormat::Raw);
     }
 
@@ -331,11 +340,11 @@ mod tests {
     fn test_render_jsonl_pretty() {
         let mut result_set = ResultSet::new();
         result_set.push(ResultItem::file("src/main.rs"));
-        
+
         let config = RenderConfig::with_pretty(OutputFormat::Jsonl, true);
         let renderer = Renderer::with_config(config);
         let output = renderer.render(&result_set);
-        
+
         // Pretty output should have indentation
         assert!(output.contains('\n'));
     }
@@ -344,11 +353,11 @@ mod tests {
     fn test_render_json_pretty() {
         let mut result_set = ResultSet::new();
         result_set.push(ResultItem::file("src/main.rs"));
-        
+
         let config = RenderConfig::with_pretty(OutputFormat::Json, true);
         let renderer = Renderer::with_config(config);
         let output = renderer.render(&result_set);
-        
+
         // Pretty JSON should have indentation
         assert!(output.contains("  "));
     }
@@ -367,10 +376,10 @@ mod tests {
         let mut item = ResultItem::file("src/main.rs");
         item.meta.size = Some(1024);
         result_set.push(item);
-        
+
         let renderer = Renderer::new(OutputFormat::Markdown);
         let output = renderer.render(&result_set);
-        
+
         assert!(output.contains("## Files"));
         assert!(output.contains("`src/main.rs`"));
         assert!(output.contains("1024 bytes"));
@@ -384,10 +393,10 @@ mod tests {
             Range::lines(10, 15),
             "fn main() {}",
         ));
-        
+
         let renderer = Renderer::new(OutputFormat::Markdown);
         let output = renderer.render(&result_set);
-        
+
         assert!(output.contains("## Matches"));
         assert!(output.contains("lines 10-15"));
         assert!(output.contains("fn main()"));
@@ -401,10 +410,10 @@ mod tests {
             Range::lines(1, 10),
             "use std::io;",
         ));
-        
+
         let renderer = Renderer::new(OutputFormat::Markdown);
         let output = renderer.render(&result_set);
-        
+
         assert!(output.contains("## Extracts"));
     }
 
@@ -414,21 +423,24 @@ mod tests {
         let mut item = ResultItem::anchor("doc.md", Range::lines(5, 20));
         item.excerpt = Some("Anchor content".to_string());
         result_set.push(item);
-        
+
         let renderer = Renderer::new(OutputFormat::Markdown);
         let output = renderer.render(&result_set);
-        
+
         assert!(output.contains("## Anchors"));
     }
 
     #[test]
     fn test_render_markdown_errors() {
         let mut result_set = ResultSet::new();
-        result_set.push(ResultItem::error(MiseError::new("TEST_ERROR", "Test error message")));
-        
+        result_set.push(ResultItem::error(MiseError::new(
+            "TEST_ERROR",
+            "Test error message",
+        )));
+
         let renderer = Renderer::new(OutputFormat::Markdown);
         let output = renderer.render(&result_set);
-        
+
         assert!(output.contains("## Errors"));
         assert!(output.contains("TEST_ERROR"));
         assert!(output.contains("Test error message"));
@@ -440,10 +452,10 @@ mod tests {
         let mut item = ResultItem::extract("test.rs", Range::lines(1, 100), "content");
         item.meta.truncated = true;
         result_set.push(item);
-        
+
         let renderer = Renderer::new(OutputFormat::Markdown);
         let output = renderer.render(&result_set);
-        
+
         assert!(output.contains("truncated"));
     }
 
@@ -455,10 +467,10 @@ mod tests {
         item.kind = Kind::Extract;
         item.excerpt = Some("content".to_string());
         result_set.push(item);
-        
+
         let renderer = Renderer::new(OutputFormat::Markdown);
         let output = renderer.render(&result_set);
-        
+
         assert!(output.contains("bytes 100-200"));
     }
 
@@ -471,10 +483,10 @@ mod tests {
         item2.excerpt = Some("content 2".to_string());
         result_set.push(item1);
         result_set.push(item2);
-        
+
         let renderer = Renderer::new(OutputFormat::Raw);
         let output = renderer.render(&result_set);
-        
+
         assert!(output.contains("content 1"));
         assert!(output.contains("content 2"));
         assert!(output.contains("---"));
@@ -484,10 +496,10 @@ mod tests {
     fn test_render_raw_no_excerpt() {
         let mut result_set = ResultSet::new();
         result_set.push(ResultItem::file("test.rs")); // No excerpt
-        
+
         let renderer = Renderer::new(OutputFormat::Raw);
         let output = renderer.render(&result_set);
-        
+
         assert!(output.is_empty());
     }
 
@@ -495,11 +507,11 @@ mod tests {
     fn test_render_to_writer() {
         let mut result_set = ResultSet::new();
         result_set.push(ResultItem::file("test.rs"));
-        
+
         let renderer = Renderer::new(OutputFormat::Json);
         let mut buffer = Vec::new();
         renderer.render_to(&result_set, &mut buffer).unwrap();
-        
+
         let output = String::from_utf8(buffer).unwrap();
         assert!(output.contains("test.rs"));
     }
@@ -511,10 +523,10 @@ mod tests {
         item.kind = Kind::Flow;
         item.excerpt = Some("flow result".to_string());
         result_set.push(item);
-        
+
         let renderer = Renderer::new(OutputFormat::Markdown);
         let output = renderer.render(&result_set);
-        
+
         assert!(output.contains("## Flow Results"));
     }
 

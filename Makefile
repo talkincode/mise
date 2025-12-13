@@ -9,7 +9,7 @@ INSTALL_DIR := $(HOME)/bin
 # Cargo flags
 CARGO_FLAGS := --release
 
-.PHONY: all build release install clean test check fmt lint help
+.PHONY: all build release install clean test check fmt lint help ci ci-quick ci-full
 
 # Default target
 all: build
@@ -57,6 +57,18 @@ fmt:
 lint:
 	cargo clippy -- -D warnings
 
+# CI: Standard CI check (fmt + lint + check + test + build)
+ci:
+	./ci.sh
+
+# CI: Quick check (fmt + lint + check)
+ci-quick:
+	./ci.sh quick
+
+# CI: Full check (all + fulltest)
+ci-full:
+	./ci.sh full
+
 # Build with all features
 build-all:
 	cargo build $(CARGO_FLAGS) --all-features
@@ -86,4 +98,7 @@ help:
 	@echo "  check        Check code without building"
 	@echo "  fmt          Format code"
 	@echo "  lint         Run clippy linter"
+	@echo "  ci           Run standard CI checks"
+	@echo "  ci-quick     Run quick CI checks (no test/build)"
+	@echo "  ci-full      Run full CI checks (including fulltest)"
 	@echo "  help         Show this help message"

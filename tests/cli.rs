@@ -1007,10 +1007,7 @@ fn match_with_exclude_glob_filters_files() {
 fn match_with_count_returns_count_only() {
     let temp = tempdir().unwrap();
 
-    write_file(
-        &temp.path().join("test.txt"),
-        "hello\nhello\nhello world\n",
-    );
+    write_file(&temp.path().join("test.txt"), "hello\nhello\nhello world\n");
 
     let mut cmd = mise_cmd();
     cmd.arg("--root")
