@@ -152,9 +152,33 @@ mod tests {
         assert!(opts.cmd.is_none());
         assert!(opts.extensions.is_none());
         assert!(opts.ignore.is_empty());
+        assert!(opts.debounce.is_none());
         assert!(!opts.clear);
         assert!(!opts.restart);
         assert!(!opts.postpone);
+        assert!(!opts.verbose);
+    }
+
+    #[test]
+    fn test_watch_options_with_values() {
+        let opts = WatchOptions {
+            cmd: Some("cargo test".to_string()),
+            extensions: Some("rs,toml".to_string()),
+            ignore: vec!["*.log".to_string(), "tmp/".to_string()],
+            debounce: Some(500),
+            clear: true,
+            restart: true,
+            postpone: true,
+            verbose: true,
+        };
+        assert_eq!(opts.cmd.as_deref(), Some("cargo test"));
+        assert_eq!(opts.extensions.as_deref(), Some("rs,toml"));
+        assert_eq!(opts.ignore.len(), 2);
+        assert_eq!(opts.debounce, Some(500));
+        assert!(opts.clear);
+        assert!(opts.restart);
+        assert!(opts.postpone);
+        assert!(opts.verbose);
     }
 
     #[test]
@@ -163,12 +187,35 @@ mod tests {
         assert!(DEFAULT_EXTENSIONS.contains("md"));
         assert!(DEFAULT_EXTENSIONS.contains("py"));
         assert!(DEFAULT_EXTENSIONS.contains("js"));
+        assert!(DEFAULT_EXTENSIONS.contains("ts"));
+        assert!(DEFAULT_EXTENSIONS.contains("json"));
+        assert!(DEFAULT_EXTENSIONS.contains("yaml"));
+        assert!(DEFAULT_EXTENSIONS.contains("toml"));
     }
 
     #[test]
     fn test_default_ignores() {
         assert!(DEFAULT_IGNORES.contains(&".git/"));
+        assert!(DEFAULT_IGNORES.contains(&".mise/"));
         assert!(DEFAULT_IGNORES.contains(&"target/"));
         assert!(DEFAULT_IGNORES.contains(&"node_modules/"));
+        assert!(DEFAULT_IGNORES.contains(&"__pycache__/"));
+        assert!(DEFAULT_IGNORES.contains(&".venv/"));
+        assert!(DEFAULT_IGNORES.contains(&"dist/"));
+        assert!(DEFAULT_IGNORES.contains(&"build/"));
+    }
+
+    #[test]
+    fn test_run_watch_without_watchexec() {
+        // Test error handling when watchexec is not available
+        // This test may or may not have watchexec installed
+        let temp = tempfile::tempdir().unwrap();
+        let opts = WatchOptions::default();
+        let config = RenderConfig::default();
+
+        // We just verify it doesn't panic
+        let result = run_watch(temp.path(), opts, config);
+        // Result depends on whether watchexec is installed
+        let _ = result;
     }
 }
