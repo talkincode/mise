@@ -29,7 +29,7 @@ jobs:
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
-          name: mise v${{ steps.get_version.outputs.version }}
+          name: misec v${{ steps.get_version.outputs.version }}
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
           generate_release_notes: true
@@ -45,27 +45,27 @@ jobs:
           # Linux x86_64
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            artifact_name: mise
-            asset_name: mise-linux-x86_64
+            artifact_name: misec
+            asset_name: misec-linux-x86_64
           
           # Linux aarch64
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-            artifact_name: mise
-            asset_name: mise-linux-aarch64
+            artifact_name: misec
+            asset_name: misec-linux-aarch64
             cross: true
           
           # macOS x86_64
           - target: x86_64-apple-darwin
             os: macos-latest
-            artifact_name: mise
-            asset_name: mise-darwin-x86_64
+            artifact_name: misec
+            asset_name: misec-darwin-x86_64
           
           # macOS aarch64 (Apple Silicon)
           - target: aarch64-apple-darwin
             os: macos-latest
-            artifact_name: mise
-            asset_name: mise-darwin-aarch64
+            artifact_name: misec
+            asset_name: misec-darwin-aarch64
 
     steps:
       - uses: actions/checkout@v4

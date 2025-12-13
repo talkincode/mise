@@ -1,7 +1,7 @@
-# Makefile for mise
+# Makefile for misec
 
 # Binary name
-BINARY_NAME := mise
+BINARY_NAME := misec
 
 # Install directory
 INSTALL_DIR := $(HOME)/bin

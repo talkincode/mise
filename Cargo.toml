@@ -1,9 +1,9 @@
 [package]
-name = "mise"
-version = "0.1.0"
+name = "misec"
+version = "0.1.2"
 edition = "2021"
 authors = ["mise contributors"]
-description = "A unified CLI tool for file scanning, anchor management, and code search"
+description = "A CLI context preparation tool for organizing files, snippets and anchors into structured output for AI agents"
 license = "MIT"
 repository = "https://github.com/talkincode/mise"
 readme = "README.md"
@@ -62,7 +62,7 @@ watch = ["tokio"]
 parallel = ["rayon"]
 
 [[bin]]
-name = "mise"
+name = "misec"
 path = "src/main.rs"
 
 [profile.release]
