@@ -42,17 +42,17 @@ cargo build --release
 
 | 命令      | 用途               | 示例                                       |
 | --------- | ------------------ | ------------------------------------------ |
-| `scan`    | 扫描项目结构       | `misecc scan --type file --max-depth 2`    |
-| `find`    | 按名称查找文件     | `misecc find readme --scope docs`          |
-| `extract` | 提取文件片段       | `misecc extract src/main.rs --lines 10:50` |
-| `match`   | 文本搜索 (ripgrep) | `misecc match "TODO\|FIXME" src/`          |
-| `ast`     | AST 结构搜索       | `misecc ast "fn main" --scope src`         |
-| `deps`    | 依赖分析           | `misecc deps src/cli.rs --reverse`         |
-| `impact`  | 变更影响分析       | `misecc impact --staged`                   |
-| `anchor`  | 锚点管理           | `misecc anchor list --tag chapter`         |
-| `flow`    | 组合工作流         | `misecc flow pack --anchors intro`         |
-| `doctor`  | 检查依赖状态       | `misecc doctor`                            |
-| `rebuild` | 重建缓存           | `misecc rebuild`                           |
+| `scan`    | 扫描项目结构       | `misec scan --type file --max-depth 2`    |
+| `find`    | 按名称查找文件     | `misec find readme --scope docs`          |
+| `extract` | 提取文件片段       | `misec extract src/main.rs --lines 10:50` |
+| `match`   | 文本搜索 (ripgrep) | `misec match "TODO\|FIXME" src/`          |
+| `ast`     | AST 结构搜索       | `misec ast "fn main" --scope src`         |
+| `deps`    | 依赖分析           | `misec deps src/cli.rs --reverse`         |
+| `impact`  | 变更影响分析       | `misec impact --staged`                   |
+| `anchor`  | 锚点管理           | `misec anchor list --tag chapter`         |
+| `flow`    | 组合工作流         | `misec flow pack --anchors intro`         |
+| `doctor`  | 检查依赖状态       | `misec doctor`                            |
+| `rebuild` | 重建缓存           | `misec rebuild`                           |
 
 ## 基本用法
 
@@ -277,9 +277,9 @@ misec rebuild                        # 重建缓存
 
 misec 会自动集成以下工具（如存在）：
 
-• ripgrep (rg)：文本匹配 `misecc match`
-• ast-grep (sg)：AST 结构匹配 `misecc ast`
-• watchexec（可选）：文件变更触发 `misecc watch`
+• ripgrep (rg)：文本匹配 `misec match`
+• ast-grep (sg)：AST 结构匹配 `misec ast`
+• watchexec（可选）：文件变更触发 `misec watch`
 
 检查依赖状态：
 

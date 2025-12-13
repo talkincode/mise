@@ -33,14 +33,14 @@ misec anchor list --pretty
 
 | 场景       | 命令                                             | 优势                            |
 | ---------- | ------------------------------------------------ | ------------------------------- |
-| 项目结构   | `misecc scan --type file --max-depth 3 --pretty`   | 结构化输出，自动过滤 .gitignore |
-| 提取片段   | `misecc extract file.rs --lines 10:50`             | 精确范围，Token 可控            |
-| 搜索代码   | `misecc match "pattern" src/ --pretty`             | JSON 输出含行号上下文           |
-| 锚点管理   | `misecc anchor list/get/mark`                      | 语义标记，无替代方案            |
-| 依赖分析   | `misecc deps src/cli.rs --deps-format tree`        | 正向/反向依赖可视化             |
-| 变更影响   | `misecc impact --staged --impact-format summary`   | 结合依赖图分析                  |
-| 上下文打包 | `misecc flow pack --anchors a,b --max-tokens 4000` | Token 预算控制                  |
-| 项目统计   | `misecc flow stats --stats-format summary`         | 字符/词/Token 计数              |
+| 项目结构   | `misec scan --type file --max-depth 3 --pretty`   | 结构化输出，自动过滤 .gitignore |
+| 提取片段   | `misec extract file.rs --lines 10:50`             | 精确范围，Token 可控            |
+| 搜索代码   | `misec match "pattern" src/ --pretty`             | JSON 输出含行号上下文           |
+| 锚点管理   | `misec anchor list/get/mark`                      | 语义标记，无替代方案            |
+| 依赖分析   | `misec deps src/cli.rs --deps-format tree`        | 正向/反向依赖可视化             |
+| 变更影响   | `misec impact --staged --impact-format summary`   | 结合依赖图分析                  |
+| 上下文打包 | `misec flow pack --anchors a,b --max-tokens 4000` | Token 预算控制                  |
+| 项目统计   | `misec flow stats --stats-format summary`         | 字符/词/Token 计数              |
 
 ### ❌ 不适合 mise
 
@@ -185,11 +185,11 @@ misec 调用外部工具但协议化输出：
 
 | 工具            | 用途                  | 检测 | 安装                     |
 | --------------- | --------------------- | ---- | ------------------------ |
-| `rg` (ripgrep)  | `misecc match` 文本搜索 | 必需 | `brew install ripgrep`   |
-| `sg`/`ast-grep` | `misecc ast` 结构搜索   | 必需 | `brew install ast-grep`  |
-| `watchexec`     | `misecc watch` 文件监听 | 可选 | `brew install watchexec` |
+| `rg` (ripgrep)  | `misec match` 文本搜索 | 必需 | `brew install ripgrep`   |
+| `sg`/`ast-grep` | `misec ast` 结构搜索   | 必需 | `brew install ast-grep`  |
+| `watchexec`     | `misec watch` 文件监听 | 可选 | `brew install watchexec` |
 
-依赖缺失时返回结构化错误，不要 panic。用 `misecc doctor` 检查依赖状态。
+依赖缺失时返回结构化错误，不要 panic。用 `misec doctor` 检查依赖状态。
 
 ## 测试约定
 
@@ -210,5 +210,5 @@ misec 调用外部工具但协议化输出：
 ## 关键约定
 
 - 平台：仅支持 Linux/macOS，Windows 启动时直接报错
-- 缓存：`.mise/` 目录，可随时删除重建（`misecc rebuild`）
+- 缓存：`.mise/` 目录，可随时删除重建（`misec rebuild`）
 - 截断：超过 `--max-bytes`（默认 64KB）时截断，并设置 `meta.truncated = true`
