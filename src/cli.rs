@@ -800,6 +800,67 @@ Supported values:\n\
         )]
         top: usize,
     },
+
+    /// Generate document outline from anchors.
+    #[command(
+        long_about = "Generate a hierarchical outline of the project based on anchor structure.\n\n\
+Shows:\n\
+- All anchors organized by file\n\
+- Character/word/token count per anchor\n\
+- Content preview for each anchor\n\
+- Nesting levels based on anchor structure\n\
+- Tag-based grouping\n\n\
+Examples:\n\
+  mise flow outline                        # Full outline\n\
+  mise flow outline --tag chapter          # Filter by tag\n\
+  mise flow outline --outline-format tree  # Tree view\n\
+  mise flow outline --outline-format json  # JSON output\n\
+  mise flow outline --scope docs           # Limit to docs/\n"
+    )]
+    Outline {
+        /// Limit outline to a subdirectory.
+        #[arg(
+            long,
+            value_name = "PATH",
+            long_help = "Limit outline to a specific subdirectory.\n\n\
+Example: --scope docs"
+        )]
+        scope: Option<std::path::PathBuf>,
+
+        /// Filter anchors by tag.
+        #[arg(
+            long,
+            value_name = "TAG",
+            long_help = "Only include anchors with this tag.\n\n\
+Example: --tag chapter"
+        )]
+        tag: Option<String>,
+
+        /// File extensions to include (comma-separated).
+        #[arg(
+            long,
+            value_name = "EXTS",
+            value_delimiter = ',',
+            long_help = "Filter files by extension.\n\n\
+Default: md,txt,rst,adoc,org,tex,html,xml\n\
+Example: --exts md,txt"
+        )]
+        exts: Vec<String>,
+
+        /// Output format (markdown/json/tree/standard).
+        #[arg(
+            long = "outline-format",
+            value_name = "FORMAT",
+            default_value = "markdown",
+            long_help = "Select the output format for outline.\n\n\
+Supported values:\n\
+- markdown (default): Markdown document\n\
+- json: full JSON object\n\
+- tree: ASCII tree view\n\
+- standard: ResultSet format"
+        )]
+        outline_format: String,
+    },
 }
 
 /// Run the CLI with parsed arguments
@@ -973,6 +1034,24 @@ pub fn run(cli: Cli) -> Result<()> {
                     extensions,
                     stats_fmt,
                     top,
+                    render_config,
+                )
+            }
+            FlowCommands::Outline {
+                scope,
+                tag,
+                exts,
+                outline_format,
+            } => {
+                let outline_fmt: crate::flows::outline::OutlineFormat =
+                    outline_format.parse().unwrap_or_default();
+                let extensions = if exts.is_empty() { None } else { Some(exts) };
+                crate::flows::outline::run_outline(
+                    &root,
+                    scope.as_deref(),
+                    tag.as_deref(),
+                    extensions,
+                    outline_fmt,
                     render_config,
                 )
             }
