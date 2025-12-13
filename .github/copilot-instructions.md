@@ -94,6 +94,7 @@ mise flow pack --anchors a,b --max-tokens 4000
 ## 🔄 典型工作流
 
 ### 代码探索
+
 ```bash
 mise scan --type file --max-depth 3 --pretty   # 结构
 mise match "fn main|async fn" src/ --pretty    # 找入口
@@ -101,12 +102,14 @@ mise deps src/main.rs --deps-format tree       # 依赖
 ```
 
 ### PR 审查
+
 ```bash
 mise impact --staged --impact-format summary   # 变更影响
 mise deps changed_file.rs --reverse            # 谁依赖它
 ```
 
 ### 上下文打包
+
 ```bash
 mise flow pack --anchors core,cli --max-tokens 4000
 mise flow stats --stats-format summary
