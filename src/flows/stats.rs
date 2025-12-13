@@ -189,7 +189,15 @@ pub fn calculate_project_stats(
     extensions: Option<&[&str]>,
     top_n: usize,
 ) -> Result<ProjectStats> {
-    let files = scan_files(root, scope, None, false, true, Some("file"))?;
+    use crate::cache::reader::get_files_cached;
+
+    let files = if scope.is_some() {
+        // If scope is specified, do a direct scan
+        scan_files(root, scope, None, false, true, Some("file"))?
+    } else {
+        // Use cached files when no scope
+        get_files_cached(root)?
+    };
 
     let mut stats = ProjectStats::default();
     let mut all_file_stats = Vec::new();

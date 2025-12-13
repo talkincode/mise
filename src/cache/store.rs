@@ -40,7 +40,6 @@ pub fn write_cache_jsonl(cache_path: &Path, filename: &str, items: &[ResultItem]
 }
 
 /// Read result set from a JSONL cache file
-#[allow(dead_code)]
 pub fn read_cache_jsonl(cache_path: &Path, filename: &str) -> Result<Vec<ResultItem>> {
     let file_path = cache_path.join(filename);
     let file = File::open(&file_path)
@@ -69,7 +68,6 @@ pub fn write_meta(cache_path: &Path, meta: &CacheMeta) -> Result<()> {
 }
 
 /// Read cache metadata
-#[allow(dead_code)]
 pub fn read_meta(cache_path: &Path) -> Result<CacheMeta> {
     let file_path = cache_path.join(META_FILE);
     let content = fs::read_to_string(&file_path).context("Failed to read meta.json")?;
@@ -78,7 +76,6 @@ pub fn read_meta(cache_path: &Path) -> Result<CacheMeta> {
 }
 
 /// Check if cache is valid (exists and version matches)
-#[allow(dead_code)]
 pub fn is_cache_valid(root: &Path) -> bool {
     let cache = cache_dir(root);
     if !cache.exists() {
@@ -175,7 +172,7 @@ mod tests {
 
         let file_path = cache.join("test.jsonl");
         assert!(file_path.exists());
-        
+
         let content = std::fs::read_to_string(&file_path).unwrap();
         assert!(content.contains("src/main.rs"));
         assert!(content.contains("src/lib.rs"));
@@ -187,10 +184,7 @@ mod tests {
         let temp = tempdir().unwrap();
         let cache = ensure_cache_dir(temp.path()).unwrap();
 
-        let items = vec![
-            ResultItem::file("src/a.rs"),
-            ResultItem::file("src/b.rs"),
-        ];
+        let items = vec![ResultItem::file("src/a.rs"), ResultItem::file("src/b.rs")];
         write_cache_jsonl(&cache, "read_test.jsonl", &items).unwrap();
 
         let read_items = read_cache_jsonl(&cache, "read_test.jsonl").unwrap();
@@ -226,7 +220,7 @@ mod tests {
     fn test_is_cache_valid_with_valid_cache() {
         let temp = tempdir().unwrap();
         let cache = ensure_cache_dir(temp.path()).unwrap();
-        
+
         // Write meta with the correct CACHE_VERSION
         let meta_content = format!(
             r#"{{"cache_version": "{}", "root": "{}", "policy_hash": "hash123", "generated_at": 0}}"#,
@@ -243,7 +237,7 @@ mod tests {
     fn test_is_cache_valid_wrong_version() {
         let temp = tempdir().unwrap();
         let cache = ensure_cache_dir(temp.path()).unwrap();
-        
+
         // Write meta with wrong version
         let file_path = cache.join(META_FILE);
         let content = r#"{"cache_version": "0.0.0", "root": "/test", "policy_hash": "abc", "timestamp": "2024-01-01T00:00:00Z"}"#;
@@ -256,7 +250,7 @@ mod tests {
     fn test_clear_cache() {
         let temp = tempdir().unwrap();
         let cache = ensure_cache_dir(temp.path()).unwrap();
-        
+
         // Create some files
         write_cache_jsonl(&cache, "test.jsonl", &[ResultItem::file("test.rs")]).unwrap();
         assert!(cache.exists());
@@ -292,7 +286,7 @@ mod tests {
     #[test]
     fn test_run_rebuild_command() {
         let temp = tempdir().unwrap();
-        
+
         // Create some files to scan
         std::fs::write(temp.path().join("test.rs"), "fn main() {}").unwrap();
 
@@ -337,7 +331,7 @@ mod tests {
     fn test_is_cache_valid_corrupted_meta() {
         let temp = tempdir().unwrap();
         let cache = ensure_cache_dir(temp.path()).unwrap();
-        
+
         // Write corrupted meta file
         std::fs::write(cache.join(META_FILE), "not valid json").unwrap();
 

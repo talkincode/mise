@@ -10,9 +10,8 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use crate::anchors::api::get_anchor;
-use crate::anchors::parse::parse_file;
 use crate::backends::rg::run_rg;
-use crate::backends::scan::scan_files;
+use crate::cache::reader::{find_anchor_by_id, get_all_anchors_parsed};
 use crate::core::model::{Confidence, ResultSet};
 use crate::core::render::{RenderConfig, Renderer};
 
@@ -51,72 +50,44 @@ pub fn gather_writing_evidence(
             seen_paths.insert(path.clone());
         }
         primary_content = item.excerpt.clone();
-
-        // Extract tags from the anchor (we need to re-parse to get tags)
-        // For now, we'll use the content for keyword extraction
         result_set.push(item);
     }
 
-    // Find the anchor to get its tags
-    let files = scan_files(root, None, None, false, true, Some("file"))?;
-    for file_item in files.items {
-        if let Some(path) = &file_item.path {
-            let full_path = root.join(path);
-            let anchors = parse_file(&full_path, path);
-
-            for anchor in anchors {
-                if anchor.id == anchor_id {
-                    primary_tags = anchor.tags.clone();
-                    break;
-                }
-            }
-        }
-        if !primary_tags.is_empty() {
-            break;
-        }
+    // Find the anchor to get its tags (using cache)
+    if let Ok(Some((_path, anchor))) = find_anchor_by_id(root, anchor_id) {
+        primary_tags = anchor.tags.clone();
     }
 
     // Step 2: Find related anchors by shared tags (medium confidence)
     if !primary_tags.is_empty() {
-        let files = scan_files(root, None, None, false, true, Some("file"))?;
+        // Use cached/efficient anchor retrieval
+        let all_anchors = get_all_anchors_parsed(root)?;
         let mut related_count = 0;
 
-        'outer: for file_item in files.items {
-            if let Some(path) = &file_item.path {
-                if seen_paths.contains(path) {
-                    continue;
-                }
+        for (path, anchor) in all_anchors {
+            if anchor.id == anchor_id {
+                continue;
+            }
+            if seen_paths.contains(&path) {
+                continue;
+            }
 
-                let full_path = root.join(path);
-                let anchors = parse_file(&full_path, path);
+            // Check for shared tags
+            let shared_tags: Vec<_> = anchor
+                .tags
+                .iter()
+                .filter(|t| primary_tags.contains(t))
+                .collect();
 
-                for anchor in anchors {
-                    if anchor.id == anchor_id {
-                        continue;
-                    }
+            if !shared_tags.is_empty() {
+                let mut item = anchor.to_result_item();
+                item.confidence = Confidence::Medium;
+                seen_paths.insert(path);
+                result_set.push(item);
+                related_count += 1;
 
-                    // Check for shared tags
-                    let shared_tags: Vec<_> = anchor
-                        .tags
-                        .iter()
-                        .filter(|t| primary_tags.contains(t))
-                        .collect();
-
-                    if !shared_tags.is_empty() {
-                        let mut item = anchor.to_result_item();
-                        item.confidence = Confidence::Medium;
-
-                        if let Some(path) = &item.path {
-                            seen_paths.insert(path.clone());
-                        }
-
-                        result_set.push(item);
-                        related_count += 1;
-
-                        if related_count >= max_items / 2 {
-                            break 'outer;
-                        }
-                    }
+                if related_count >= max_items / 2 {
+                    break;
                 }
             }
         }

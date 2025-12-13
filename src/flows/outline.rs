@@ -226,7 +226,15 @@ pub fn generate_outline(
     tag_filter: Option<&str>,
     extensions: Option<&[&str]>,
 ) -> Result<ProjectOutline> {
-    let files = scan_files(root, scope, None, false, true, Some("file"))?;
+    use crate::cache::reader::get_files_cached;
+
+    let files = if scope.is_some() {
+        // If scope is specified, do a direct scan (scope is specific)
+        scan_files(root, scope, None, false, true, Some("file"))?
+    } else {
+        // Use cached files when no scope
+        get_files_cached(root)?
+    };
 
     let default_exts = ["md", "txt", "rst", "adoc", "org", "tex", "html", "xml"];
     let exts: &[&str] = extensions.unwrap_or(&default_exts);
@@ -892,7 +900,11 @@ mod tests {
         // Check summary item
         let summary = &result_set.items[0];
         assert_eq!(summary.kind, Kind::Flow);
-        assert!(summary.excerpt.as_ref().unwrap().contains("Document Outline"));
+        assert!(summary
+            .excerpt
+            .as_ref()
+            .unwrap()
+            .contains("Document Outline"));
 
         // Check anchor item
         let anchor = &result_set.items[1];
