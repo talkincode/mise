@@ -6,6 +6,7 @@ use crate::backends::ast_grep::get_ast_grep_command;
 use crate::backends::rg::is_rg_available;
 use crate::core::model::{Confidence, Kind, MiseError, ResultItem, ResultSet, SourceMode};
 use crate::core::render::{RenderConfig, Renderer};
+use crate::core::tokenizer::check_all_tiktoken_models;
 use crate::core::util::command_exists;
 
 /// Dependency status
@@ -120,6 +121,28 @@ pub fn check_dependencies() -> Vec<DependencyStatus> {
         notes: Some("Install: brew install watchexec / cargo install watchexec-cli".to_string()),
     });
 
+    // tiktoken models (optional, for accurate token counting)
+    for (model_name, available, error) in check_all_tiktoken_models() {
+        deps.push(DependencyStatus {
+            name: format!("tiktoken:{}", model_name),
+            available,
+            command: if available {
+                Some("cached".to_string())
+            } else {
+                None
+            },
+            required: false,
+            notes: if available {
+                None
+            } else {
+                Some(format!(
+                    "{}. Will download on first use, or use --model heuristic",
+                    error.unwrap_or_else(|| "Not loaded".to_string())
+                ))
+            },
+        });
+    }
+
     deps
 }
 
@@ -157,11 +180,14 @@ mod tests {
         let deps = check_dependencies();
         assert!(!deps.is_empty());
 
-        // Should have at least ripgrep, ast-grep, and watchexec
+        // Should have at least ripgrep, ast-grep, watchexec, and tiktoken models
         let names: Vec<_> = deps.iter().map(|d| d.name.as_str()).collect();
         assert!(names.contains(&"ripgrep"));
         assert!(names.contains(&"ast-grep"));
         assert!(names.contains(&"watchexec"));
+
+        // Check tiktoken models are included
+        assert!(names.iter().any(|n| n.starts_with("tiktoken:")));
     }
 
     #[test]
@@ -221,7 +247,10 @@ mod tests {
             required: true,
             notes: None,
         };
-        assert!(matches!(available_required.to_result_item().confidence, Confidence::High));
+        assert!(matches!(
+            available_required.to_result_item().confidence,
+            Confidence::High
+        ));
 
         let unavailable_required = DependencyStatus {
             name: "tool2".to_string(),
@@ -230,7 +259,10 @@ mod tests {
             required: true,
             notes: None,
         };
-        assert!(matches!(unavailable_required.to_result_item().confidence, Confidence::High));
+        assert!(matches!(
+            unavailable_required.to_result_item().confidence,
+            Confidence::High
+        ));
 
         let unavailable_optional = DependencyStatus {
             name: "tool3".to_string(),
@@ -239,7 +271,10 @@ mod tests {
             required: false,
             notes: None,
         };
-        assert!(matches!(unavailable_optional.to_result_item().confidence, Confidence::Low));
+        assert!(matches!(
+            unavailable_optional.to_result_item().confidence,
+            Confidence::Low
+        ));
     }
 
     #[test]
@@ -312,9 +347,20 @@ mod tests {
     #[test]
     fn test_check_dependencies_has_notes() {
         let deps = check_dependencies();
-        // All dependencies should have install notes
+        // External tool dependencies should have install notes when not available
         for dep in &deps {
-            assert!(dep.notes.is_some());
+            // tiktoken models don't need notes when available (they're built-in)
+            if dep.name.starts_with("tiktoken:") && dep.available {
+                continue;
+            }
+            // For unavailable deps or external tools, notes should exist
+            if !dep.available {
+                assert!(
+                    dep.notes.is_some(),
+                    "{} should have install notes",
+                    dep.name
+                );
+            }
         }
     }
 
@@ -336,6 +382,9 @@ mod tests {
         };
         let item = status.to_result_item();
         // Doctor results should have appropriate source mode
-        assert!(matches!(item.source_mode, crate::core::model::SourceMode::Scan));
+        assert!(matches!(
+            item.source_mode,
+            crate::core::model::SourceMode::Scan
+        ));
     }
 }

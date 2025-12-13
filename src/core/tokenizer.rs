@@ -25,6 +25,7 @@
 use once_cell::sync::Lazy;
 use std::fmt;
 use std::str::FromStr;
+use std::sync::Mutex;
 use tiktoken_rs::{cl100k_base, o200k_base, CoreBPE};
 
 /// Supported token models/encodings
@@ -51,11 +52,11 @@ impl TokenModel {
     /// Get the underlying BPE encoding for this model
     fn get_bpe(&self) -> Option<&'static CoreBPE> {
         match self {
-            TokenModel::O200k | TokenModel::Gpt4o => Some(&*O200K_BPE),
+            TokenModel::O200k | TokenModel::Gpt4o => O200K_BPE.as_ref().ok(),
             TokenModel::Cl100k
             | TokenModel::Gpt4
             | TokenModel::Gpt35Turbo
-            | TokenModel::Claude3 => Some(&*CL100K_BPE),
+            | TokenModel::Claude3 => CL100K_BPE.as_ref().ok(),
             TokenModel::Heuristic => None,
         }
     }
@@ -124,11 +125,87 @@ impl FromStr for TokenModel {
 }
 
 // Lazy-initialized BPE encodings (loaded once on first use)
-static CL100K_BPE: Lazy<CoreBPE> =
-    Lazy::new(|| cl100k_base().expect("Failed to load cl100k_base encoding"));
+static CL100K_BPE: Lazy<Result<CoreBPE, String>> =
+    Lazy::new(|| cl100k_base().map_err(|e| format!("Failed to load cl100k_base: {}", e)));
 
-static O200K_BPE: Lazy<CoreBPE> =
-    Lazy::new(|| o200k_base().expect("Failed to load o200k_base encoding"));
+static O200K_BPE: Lazy<Result<CoreBPE, String>> =
+    Lazy::new(|| o200k_base().map_err(|e| format!("Failed to load o200k_base: {}", e)));
+
+// Cache for model availability status
+static CL100K_STATUS: Lazy<Mutex<Option<bool>>> = Lazy::new(|| Mutex::new(None));
+static O200K_STATUS: Lazy<Mutex<Option<bool>>> = Lazy::new(|| Mutex::new(None));
+
+/// Check if a tiktoken model is available (downloaded/cached)
+///
+/// Returns (available, error_message)
+pub fn check_tiktoken_model(model: TokenModel) -> (bool, Option<String>) {
+    match model {
+        TokenModel::Heuristic => (true, None),
+        TokenModel::O200k | TokenModel::Gpt4o => {
+            // Check cached status first
+            let mut status = O200K_STATUS.lock().unwrap();
+            if let Some(available) = *status {
+                return (
+                    available,
+                    if available {
+                        None
+                    } else {
+                        Some("o200k_base not loaded".to_string())
+                    },
+                );
+            }
+            // Try to load
+            match &*O200K_BPE {
+                Ok(_) => {
+                    *status = Some(true);
+                    (true, None)
+                }
+                Err(e) => {
+                    *status = Some(false);
+                    (false, Some(e.clone()))
+                }
+            }
+        }
+        _ => {
+            // cl100k variants
+            let mut status = CL100K_STATUS.lock().unwrap();
+            if let Some(available) = *status {
+                return (
+                    available,
+                    if available {
+                        None
+                    } else {
+                        Some("cl100k_base not loaded".to_string())
+                    },
+                );
+            }
+            match &*CL100K_BPE {
+                Ok(_) => {
+                    *status = Some(true);
+                    (true, None)
+                }
+                Err(e) => {
+                    *status = Some(false);
+                    (false, Some(e.clone()))
+                }
+            }
+        }
+    }
+}
+
+/// Get status of all tiktoken models
+pub fn check_all_tiktoken_models() -> Vec<(String, bool, Option<String>)> {
+    vec![
+        {
+            let (ok, err) = check_tiktoken_model(TokenModel::Cl100k);
+            ("cl100k_base (GPT-4/Claude)".to_string(), ok, err)
+        },
+        {
+            let (ok, err) = check_tiktoken_model(TokenModel::O200k);
+            ("o200k_base (GPT-4o)".to_string(), ok, err)
+        },
+    ]
+}
 
 /// Count tokens in text using the specified model
 ///
