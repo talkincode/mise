@@ -610,4 +610,762 @@ mod tests {
         let batch: BatchMarkSpec = serde_json::from_str(json).unwrap();
         assert_eq!(batch.marks.len(), 2);
     }
+
+    #[test]
+    fn test_insert_markers_end_line_greater_than_start() {
+        let content = "line 1\n";
+        let spec = MarkSpec {
+            path: "test.md".to_string(),
+            start_line: 3,
+            end_line: 1,
+            id: "test".to_string(),
+            tags: vec![],
+            version: 1,
+        };
+        assert!(insert_markers(content, &spec).is_err());
+    }
+
+    #[test]
+    fn test_insert_markers_start_exceeds_length() {
+        let content = "line 1\nline 2\n";
+        let spec = MarkSpec {
+            path: "test.md".to_string(),
+            start_line: 100,
+            end_line: 200,
+            id: "test".to_string(),
+            tags: vec![],
+            version: 1,
+        };
+        assert!(insert_markers(content, &spec).is_err());
+    }
+
+    #[test]
+    fn test_insert_markers_preserves_no_trailing_newline() {
+        let content = "line 1\nline 2"; // No trailing newline
+        let spec = MarkSpec {
+            path: "test.md".to_string(),
+            start_line: 1,
+            end_line: 1,
+            id: "test".to_string(),
+            tags: vec![],
+            version: 1,
+        };
+        let result = insert_markers(content, &spec).unwrap();
+        assert!(!result.ends_with('\n'));
+    }
+
+    #[test]
+    fn test_insert_markers_clamps_end_line() {
+        let content = "line 1\nline 2\n";
+        let spec = MarkSpec {
+            path: "test.md".to_string(),
+            start_line: 1,
+            end_line: 100, // Much larger than file
+            id: "test".to_string(),
+            tags: vec![],
+            version: 1,
+        };
+        let result = insert_markers(content, &spec).unwrap();
+        // Should still work, clamping end to file length
+        assert!(result.contains("<!--Q:begin"));
+        assert!(result.contains("<!--Q:end"));
+    }
+
+    #[test]
+    fn test_mark_result_to_result_item_success() {
+        let result = MarkResult {
+            path: "test.md".to_string(),
+            id: "test-id".to_string(),
+            success: true,
+            error: None,
+            lines_affected: Some((1, 10)),
+        };
+        let item = result.to_result_item();
+        assert!(matches!(item.kind, crate::core::model::Kind::Anchor));
+        assert!(item.excerpt.is_some());
+        assert!(item.excerpt.unwrap().contains("marked successfully"));
+    }
+
+    #[test]
+    fn test_mark_result_to_result_item_failure() {
+        let result = MarkResult {
+            path: "test.md".to_string(),
+            id: "test-id".to_string(),
+            success: false,
+            error: Some("Some error".to_string()),
+            lines_affected: None,
+        };
+        let item = result.to_result_item();
+        assert!(matches!(item.kind, crate::core::model::Kind::Error));
+    }
+
+    #[test]
+    fn test_remove_markers_not_found() {
+        let content = "line 1\nline 2\nline 3\n";
+        let result = remove_markers(content, "nonexistent");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_remove_markers_preserves_no_trailing_newline() {
+        let content = "line 1\n<!--Q:begin id=test v=1-->\nline 2\n<!--Q:end id=test-->";
+        let result = remove_markers(content, "test").unwrap();
+        assert!(!result.ends_with('\n'));
+    }
+
+    #[test]
+    fn test_mark_spec_default_version() {
+        let json = r#"{"path": "test.md", "start_line": 1, "end_line": 10, "id": "intro"}"#;
+        let spec: MarkSpec = serde_json::from_str(json).unwrap();
+        assert_eq!(spec.version, 1);
+        assert!(spec.tags.is_empty());
+    }
+
+    #[test]
+    fn test_mark_spec_with_custom_version() {
+        let json =
+            r#"{"path": "test.md", "start_line": 1, "end_line": 10, "id": "intro", "version": 5}"#;
+        let spec: MarkSpec = serde_json::from_str(json).unwrap();
+        assert_eq!(spec.version, 5);
+    }
+
+    #[test]
+    fn test_batch_mark_spec_empty() {
+        let json = r#"{"marks": []}"#;
+        let batch: BatchMarkSpec = serde_json::from_str(json).unwrap();
+        assert!(batch.marks.is_empty());
+    }
+
+    #[test]
+    fn test_generate_begin_marker_multiple_tags() {
+        let begin = generate_begin_marker(
+            "id123",
+            &["tag1".to_string(), "tag2".to_string(), "tag3".to_string()],
+            3,
+        );
+        assert_eq!(begin, "<!--Q:begin id=id123 tags=tag1,tag2,tag3 v=3-->");
+    }
+
+    #[test]
+    fn test_generate_end_marker() {
+        let end = generate_end_marker("test-id");
+        assert_eq!(end, "<!--Q:end id=test-id-->");
+    }
+
+    #[test]
+    fn test_default_version() {
+        assert_eq!(default_version(), 1);
+    }
+
+    #[test]
+    fn test_mark_file_dry_run() {
+        use tempfile::tempdir;
+        let temp = tempdir().unwrap();
+        let file_path = temp.path().join("test.md");
+        std::fs::write(&file_path, "line 1\nline 2\n").unwrap();
+
+        let spec = MarkSpec {
+            path: "test.md".to_string(),
+            start_line: 1,
+            end_line: 2,
+            id: "test".to_string(),
+            tags: vec![],
+            version: 1,
+        };
+
+        let result = mark_file(temp.path(), &spec, true).unwrap();
+        assert!(result.success);
+
+        // File should not be modified in dry run
+        let content = std::fs::read_to_string(&file_path).unwrap();
+        assert!(!content.contains("<!--Q:begin"));
+    }
+
+    #[test]
+    fn test_mark_file_write() {
+        use tempfile::tempdir;
+        let temp = tempdir().unwrap();
+        let file_path = temp.path().join("test.md");
+        std::fs::write(&file_path, "line 1\nline 2\n").unwrap();
+
+        let spec = MarkSpec {
+            path: "test.md".to_string(),
+            start_line: 1,
+            end_line: 2,
+            id: "test".to_string(),
+            tags: vec!["tag1".to_string()],
+            version: 1,
+        };
+
+        let result = mark_file(temp.path(), &spec, false).unwrap();
+        assert!(result.success);
+        assert!(result.lines_affected.is_some());
+
+        // File should be modified
+        let content = std::fs::read_to_string(&file_path).unwrap();
+        assert!(content.contains("<!--Q:begin id=test tags=tag1 v=1-->"));
+        assert!(content.contains("<!--Q:end id=test-->"));
+    }
+
+    #[test]
+    fn test_mark_file_nonexistent() {
+        use tempfile::tempdir;
+        let temp = tempdir().unwrap();
+
+        let spec = MarkSpec {
+            path: "nonexistent.md".to_string(),
+            start_line: 1,
+            end_line: 2,
+            id: "test".to_string(),
+            tags: vec![],
+            version: 1,
+        };
+
+        let result = mark_file(temp.path(), &spec, false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_mark_batch_multiple_files() {
+        use tempfile::tempdir;
+        let temp = tempdir().unwrap();
+        std::fs::write(temp.path().join("a.md"), "line a\n").unwrap();
+        std::fs::write(temp.path().join("b.md"), "line b\n").unwrap();
+
+        let specs = vec![
+            MarkSpec {
+                path: "a.md".to_string(),
+                start_line: 1,
+                end_line: 1,
+                id: "a-id".to_string(),
+                tags: vec![],
+                version: 1,
+            },
+            MarkSpec {
+                path: "b.md".to_string(),
+                start_line: 1,
+                end_line: 1,
+                id: "b-id".to_string(),
+                tags: vec![],
+                version: 1,
+            },
+        ];
+
+        let results = mark_batch(temp.path(), specs, true).unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results[0].success);
+        assert!(results[1].success);
+    }
+
+    #[test]
+    fn test_mark_batch_same_file_multiple_marks() {
+        use tempfile::tempdir;
+        let temp = tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("test.md"),
+            "line 1\nline 2\nline 3\nline 4\n",
+        )
+        .unwrap();
+
+        // When marking same file multiple times, later marks need adjusted line numbers
+        let specs = vec![
+            MarkSpec {
+                path: "test.md".to_string(),
+                start_line: 1,
+                end_line: 1,
+                id: "first".to_string(),
+                tags: vec![],
+                version: 1,
+            },
+            MarkSpec {
+                path: "test.md".to_string(),
+                start_line: 3, // After first mark insertion, this becomes line 5
+                end_line: 3,
+                id: "second".to_string(),
+                tags: vec![],
+                version: 1,
+            },
+        ];
+
+        let results = mark_batch(temp.path(), specs, true).unwrap();
+        assert_eq!(results.len(), 2);
+        // Both should succeed
+        assert!(results[0].success);
+        assert!(results[1].success);
+    }
+
+    #[test]
+    fn test_mark_result_serialization() {
+        let result = MarkResult {
+            path: "test.md".to_string(),
+            id: "test-id".to_string(),
+            success: true,
+            error: None,
+            lines_affected: Some((1, 5)),
+        };
+
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("test.md"));
+        assert!(json.contains("test-id"));
+        assert!(json.contains("true"));
+        assert!(!json.contains("error")); // Skipped when None
+    }
+
+    #[test]
+    fn test_mark_spec_clone() {
+        let spec = MarkSpec {
+            path: "test.md".to_string(),
+            start_line: 1,
+            end_line: 10,
+            id: "test".to_string(),
+            tags: vec!["a".to_string()],
+            version: 2,
+        };
+        let cloned = spec.clone();
+        assert_eq!(spec.path, cloned.path);
+        assert_eq!(spec.id, cloned.id);
+    }
+
+    #[test]
+    fn test_batch_mark_spec_serialization() {
+        let batch = BatchMarkSpec {
+            marks: vec![MarkSpec {
+                path: "test.md".to_string(),
+                start_line: 1,
+                end_line: 5,
+                id: "intro".to_string(),
+                tags: vec![],
+                version: 1,
+            }],
+        };
+
+        let json = serde_json::to_string(&batch).unwrap();
+        let parsed: BatchMarkSpec = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.marks.len(), 1);
+    }
+
+    #[test]
+    fn test_mark_file_nonexistent_file() {
+        use tempfile::tempdir;
+        let temp = tempdir().unwrap();
+        let spec = MarkSpec {
+            path: "nonexistent.md".to_string(),
+            start_line: 1,
+            end_line: 5,
+            id: "test".to_string(),
+            tags: vec![],
+            version: 1,
+        };
+
+        let result = mark_file(temp.path(), &spec, false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_mark_file_insert_failure_returns_result() {
+        use tempfile::tempdir;
+        let temp = tempdir().unwrap();
+        // Create a file with only 2 lines
+        std::fs::write(temp.path().join("short.md"), "line 1\nline 2\n").unwrap();
+
+        let spec = MarkSpec {
+            path: "short.md".to_string(),
+            start_line: 1,
+            end_line: 100, // End line beyond file
+            id: "test".to_string(),
+            tags: vec![],
+            version: 1,
+        };
+
+        let result = mark_file(temp.path(), &spec, false).unwrap();
+        // The implementation may succeed with clamping or fail - check either case
+        // Actually, the implementation clamps end_line, so it succeeds
+        // Just verify we get a result without panic
+        assert!(result.path == "short.md");
+    }
+
+    #[test]
+    fn test_mark_batch_file_read_failure() {
+        use tempfile::tempdir;
+        let temp = tempdir().unwrap();
+        // Don't create the file, so reading will fail
+        let specs = vec![MarkSpec {
+            path: "nonexistent.md".to_string(),
+            start_line: 1,
+            end_line: 5,
+            id: "test".to_string(),
+            tags: vec![],
+            version: 1,
+        }];
+
+        let results = mark_batch(temp.path(), specs, false).unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].success);
+        assert!(results[0].error.is_some());
+        assert!(results[0]
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("Failed to read"));
+    }
+
+    #[test]
+    fn test_mark_batch_insert_failure_in_batch() {
+        use tempfile::tempdir;
+        let temp = tempdir().unwrap();
+        std::fs::write(temp.path().join("test.md"), "line 1\nline 2\n").unwrap();
+
+        let specs = vec![
+            MarkSpec {
+                path: "test.md".to_string(),
+                start_line: 1,
+                end_line: 1,
+                id: "ok".to_string(),
+                tags: vec![],
+                version: 1,
+            },
+            MarkSpec {
+                path: "test.md".to_string(),
+                start_line: 100, // Invalid line
+                end_line: 200,
+                id: "fail".to_string(),
+                tags: vec![],
+                version: 1,
+            },
+        ];
+
+        let results = mark_batch(temp.path(), specs, true).unwrap();
+        assert_eq!(results.len(), 2);
+        // Since sorted descending, the failing one is processed first
+        let success_count = results.iter().filter(|r| r.success).count();
+        let fail_count = results.iter().filter(|r| !r.success).count();
+        assert!(success_count >= 1);
+        assert!(fail_count >= 1);
+    }
+
+    #[test]
+    fn test_mark_result_to_result_item_success_with_details() {
+        let result = MarkResult {
+            path: "test.md".to_string(),
+            id: "test-id".to_string(),
+            success: true,
+            error: None,
+            lines_affected: Some((1, 10)),
+        };
+
+        let item = result.to_result_item();
+        assert_eq!(item.kind, crate::core::model::Kind::Anchor);
+        assert_eq!(item.path, Some("test.md".to_string()));
+        assert!(item.excerpt.is_some());
+        assert!(item.excerpt.unwrap().contains("test-id"));
+    }
+
+    #[test]
+    fn test_mark_result_to_result_item_failure_with_details() {
+        let result = MarkResult {
+            path: "test.md".to_string(),
+            id: "test-id".to_string(),
+            success: false,
+            error: Some("Test error".to_string()),
+            lines_affected: None,
+        };
+
+        let item = result.to_result_item();
+        assert_eq!(item.kind, crate::core::model::Kind::Error);
+        assert_eq!(item.path, Some("test.md".to_string()));
+        assert_eq!(item.excerpt, Some("Test error".to_string()));
+    }
+
+    #[test]
+    fn test_remove_markers_basic() {
+        let content =
+            "line 1\n<!--Q:begin id=test v=1-->\nmarked content\n<!--Q:end id=test-->\nline 2\n";
+        let result = remove_markers(content, "test").unwrap();
+        assert!(!result.contains("Q:begin"));
+        assert!(!result.contains("Q:end"));
+        assert!(result.contains("marked content"));
+    }
+
+    #[test]
+    fn test_remove_markers_with_tags() {
+        let content =
+            "start\n<!--Q:begin id=test tags=a,b v=1-->\ncontent\n<!--Q:end id=test-->\nend\n";
+        let result = remove_markers(content, "test").unwrap();
+        assert!(!result.contains("Q:begin"));
+        assert!(!result.contains("Q:end"));
+        assert!(result.contains("content"));
+    }
+
+    #[test]
+    fn test_remove_markers_anchor_not_found_with_message() {
+        let content = "line 1\nline 2\nline 3\n";
+        let result = remove_markers(content, "nonexistent");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_remove_markers_preserves_surrounding_content() {
+        let content = "before\n<!--Q:begin id=test v=1-->\ninner\n<!--Q:end id=test-->\nafter\n";
+        let result = remove_markers(content, "test").unwrap();
+        assert!(result.contains("before"));
+        assert!(result.contains("after"));
+        assert!(result.contains("inner"));
+    }
+
+    #[test]
+    fn test_run_mark_dry_run() {
+        use tempfile::tempdir;
+        let temp = tempdir().unwrap();
+        let content = "line 1\nline 2\nline 3\n";
+        std::fs::write(temp.path().join("test.md"), content).unwrap();
+
+        let config = RenderConfig {
+            format: crate::core::render::OutputFormat::Json,
+            pretty: false,
+        };
+
+        // Dry run should not modify the file
+        let result = run_mark(
+            temp.path(),
+            "test.md",
+            1,
+            2,
+            "test-anchor",
+            vec!["tag1".to_string()],
+            1,
+            true,
+            config,
+        );
+        assert!(result.is_ok());
+
+        // File should be unchanged
+        let final_content = std::fs::read_to_string(temp.path().join("test.md")).unwrap();
+        assert_eq!(final_content, content);
+    }
+
+    #[test]
+    fn test_run_mark_actual_write() {
+        use tempfile::tempdir;
+        let temp = tempdir().unwrap();
+        let content = "line 1\nline 2\nline 3\n";
+        std::fs::write(temp.path().join("test.md"), content).unwrap();
+
+        let config = RenderConfig {
+            format: crate::core::render::OutputFormat::Json,
+            pretty: false,
+        };
+
+        let result = run_mark(
+            temp.path(),
+            "test.md",
+            1,
+            2,
+            "test-anchor",
+            vec!["tag1".to_string()],
+            1,
+            false,
+            config,
+        );
+        assert!(result.is_ok());
+
+        // File should be modified
+        let final_content = std::fs::read_to_string(temp.path().join("test.md")).unwrap();
+        assert!(final_content.contains("Q:begin"));
+        assert!(final_content.contains("test-anchor"));
+    }
+
+    #[test]
+    fn test_run_batch_mark_json_array() {
+        use tempfile::tempdir;
+        let temp = tempdir().unwrap();
+        std::fs::write(temp.path().join("test.md"), "line 1\nline 2\nline 3\n").unwrap();
+
+        let json = r#"[{"path": "test.md", "start_line": 1, "end_line": 2, "id": "test", "tags": [], "version": 1}]"#;
+        let config = RenderConfig {
+            format: crate::core::render::OutputFormat::Json,
+            pretty: false,
+        };
+
+        let result = run_batch_mark(temp.path(), json, true, config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_run_batch_mark_json_object() {
+        use tempfile::tempdir;
+        let temp = tempdir().unwrap();
+        std::fs::write(temp.path().join("test.md"), "line 1\nline 2\nline 3\n").unwrap();
+
+        let json = r#"{"marks": [{"path": "test.md", "start_line": 1, "end_line": 2, "id": "test", "tags": [], "version": 1}]}"#;
+        let config = RenderConfig {
+            format: crate::core::render::OutputFormat::Json,
+            pretty: false,
+        };
+
+        let result = run_batch_mark(temp.path(), json, true, config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_run_batch_mark_empty_input() {
+        use tempfile::tempdir;
+        let temp = tempdir().unwrap();
+
+        let json = "[]";
+        let config = RenderConfig {
+            format: crate::core::render::OutputFormat::Json,
+            pretty: false,
+        };
+
+        let result = run_batch_mark(temp.path(), json, true, config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("No marks"));
+    }
+
+    #[test]
+    fn test_run_batch_mark_invalid_json() {
+        use tempfile::tempdir;
+        let temp = tempdir().unwrap();
+
+        let json = "not valid json";
+        let config = RenderConfig {
+            format: crate::core::render::OutputFormat::Json,
+            pretty: false,
+        };
+
+        let result = run_batch_mark(temp.path(), json, true, config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_run_unmark_dry_run() {
+        use tempfile::tempdir;
+        let temp = tempdir().unwrap();
+        let content = "line 1\n<!--Q:begin id=test v=1-->\nmarked\n<!--Q:end id=test-->\nline 2\n";
+        std::fs::write(temp.path().join("test.md"), content).unwrap();
+
+        let config = RenderConfig {
+            format: crate::core::render::OutputFormat::Json,
+            pretty: false,
+        };
+
+        let result = run_unmark(temp.path(), "test.md", "test", true, config);
+        assert!(result.is_ok());
+
+        // File should be unchanged in dry run
+        let final_content = std::fs::read_to_string(temp.path().join("test.md")).unwrap();
+        assert!(final_content.contains("Q:begin"));
+    }
+
+    #[test]
+    fn test_run_unmark_actual_remove() {
+        use tempfile::tempdir;
+        let temp = tempdir().unwrap();
+        let content = "line 1\n<!--Q:begin id=test v=1-->\nmarked\n<!--Q:end id=test-->\nline 2\n";
+        std::fs::write(temp.path().join("test.md"), content).unwrap();
+
+        let config = RenderConfig {
+            format: crate::core::render::OutputFormat::Json,
+            pretty: false,
+        };
+
+        let result = run_unmark(temp.path(), "test.md", "test", false, config);
+        assert!(result.is_ok());
+
+        // File should have markers removed
+        let final_content = std::fs::read_to_string(temp.path().join("test.md")).unwrap();
+        assert!(!final_content.contains("Q:begin"));
+        assert!(!final_content.contains("Q:end"));
+        assert!(final_content.contains("marked"));
+    }
+
+    #[test]
+    fn test_run_unmark_file_not_found() {
+        use tempfile::tempdir;
+        let temp = tempdir().unwrap();
+
+        let config = RenderConfig {
+            format: crate::core::render::OutputFormat::Json,
+            pretty: false,
+        };
+
+        let result = run_unmark(temp.path(), "nonexistent.md", "test", false, config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_run_unmark_anchor_not_found() {
+        use tempfile::tempdir;
+        let temp = tempdir().unwrap();
+        let content = "line 1\nline 2\n";
+        std::fs::write(temp.path().join("test.md"), content).unwrap();
+
+        let config = RenderConfig {
+            format: crate::core::render::OutputFormat::Json,
+            pretty: false,
+        };
+
+        let result = run_unmark(temp.path(), "test.md", "nonexistent", false, config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_run_batch_mark_from_file() {
+        use tempfile::tempdir;
+        let temp = tempdir().unwrap();
+        std::fs::write(temp.path().join("test.md"), "line 1\nline 2\nline 3\n").unwrap();
+
+        let spec_json = r#"[{"path": "test.md", "start_line": 1, "end_line": 2, "id": "test", "tags": [], "version": 1}]"#;
+        std::fs::write(temp.path().join("specs.json"), spec_json).unwrap();
+
+        let config = RenderConfig {
+            format: crate::core::render::OutputFormat::Json,
+            pretty: false,
+        };
+
+        let result =
+            run_batch_mark_from_file(temp.path(), &temp.path().join("specs.json"), true, config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_run_batch_mark_from_file_not_found() {
+        use tempfile::tempdir;
+        let temp = tempdir().unwrap();
+
+        let config = RenderConfig {
+            format: crate::core::render::OutputFormat::Json,
+            pretty: false,
+        };
+
+        let result = run_batch_mark_from_file(
+            temp.path(),
+            &temp.path().join("nonexistent.json"),
+            true,
+            config,
+        );
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Failed to read spec file"));
+    }
+
+    #[test]
+    fn test_remove_markers_without_trailing_newline() {
+        let content = "line 1\n<!--Q:begin id=test v=1-->\nmarked\n<!--Q:end id=test-->\nline 2";
+        let result = remove_markers(content, "test").unwrap();
+        // Should preserve non-trailing-newline
+        assert!(!result.ends_with('\n'));
+    }
+
+    #[test]
+    fn test_remove_markers_with_whitespace_variations() {
+        // Test with extra spaces in markers
+        let content =
+            "line 1\n  <!--  Q:begin  id=test  v=1  -->  \nmarked\n<!--Q:end id=test-->\nline 2\n";
+        let result = remove_markers(content, "test").unwrap();
+        assert!(result.contains("marked"));
+    }
 }

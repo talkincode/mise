@@ -162,4 +162,179 @@ mod tests {
         assert!(names.contains(&"ast-grep"));
         assert!(names.contains(&"watchexec"));
     }
+
+    #[test]
+    fn test_dependency_status_to_result_item_available() {
+        let status = DependencyStatus {
+            name: "test-tool".to_string(),
+            available: true,
+            command: Some("test".to_string()),
+            required: true,
+            notes: None,
+        };
+        let item = status.to_result_item();
+        assert!(matches!(item.kind, Kind::File));
+        assert!(item.excerpt.is_some());
+        assert!(item.excerpt.as_ref().unwrap().contains("✓"));
+        assert!(item.excerpt.as_ref().unwrap().contains("installed"));
+    }
+
+    #[test]
+    fn test_dependency_status_to_result_item_unavailable_required() {
+        let status = DependencyStatus {
+            name: "missing-tool".to_string(),
+            available: false,
+            command: None,
+            required: true,
+            notes: Some("Install with: cargo install missing-tool".to_string()),
+        };
+        let item = status.to_result_item();
+        assert!(matches!(item.kind, Kind::Error));
+        assert!(!item.errors.is_empty());
+        assert!(item.errors[0].code == "MISSING_DEPENDENCY");
+        assert!(item.excerpt.as_ref().unwrap().contains("✗"));
+        assert!(item.excerpt.as_ref().unwrap().contains("not found"));
+    }
+
+    #[test]
+    fn test_dependency_status_to_result_item_unavailable_optional() {
+        let status = DependencyStatus {
+            name: "optional-tool".to_string(),
+            available: false,
+            command: None,
+            required: false,
+            notes: Some("Optional install".to_string()),
+        };
+        let item = status.to_result_item();
+        // Optional missing deps don't add errors
+        assert!(item.errors.is_empty());
+        assert!(item.excerpt.as_ref().unwrap().contains("optional"));
+    }
+
+    #[test]
+    fn test_dependency_status_confidence() {
+        let available_required = DependencyStatus {
+            name: "tool1".to_string(),
+            available: true,
+            command: Some("t1".to_string()),
+            required: true,
+            notes: None,
+        };
+        assert!(matches!(available_required.to_result_item().confidence, Confidence::High));
+
+        let unavailable_required = DependencyStatus {
+            name: "tool2".to_string(),
+            available: false,
+            command: None,
+            required: true,
+            notes: None,
+        };
+        assert!(matches!(unavailable_required.to_result_item().confidence, Confidence::High));
+
+        let unavailable_optional = DependencyStatus {
+            name: "tool3".to_string(),
+            available: false,
+            command: None,
+            required: false,
+            notes: None,
+        };
+        assert!(matches!(unavailable_optional.to_result_item().confidence, Confidence::Low));
+    }
+
+    #[test]
+    fn test_check_dependencies_ripgrep_required() {
+        let deps = check_dependencies();
+        let rg = deps.iter().find(|d| d.name == "ripgrep").unwrap();
+        assert!(rg.required);
+    }
+
+    #[test]
+    fn test_check_dependencies_watchexec_optional() {
+        let deps = check_dependencies();
+        let watchexec = deps.iter().find(|d| d.name == "watchexec").unwrap();
+        assert!(!watchexec.required);
+    }
+
+    #[test]
+    fn test_dependency_status_notes_in_output() {
+        let status = DependencyStatus {
+            name: "tool".to_string(),
+            available: false,
+            command: None,
+            required: true,
+            notes: Some("brew install tool".to_string()),
+        };
+        let item = status.to_result_item();
+        assert!(item.excerpt.as_ref().unwrap().contains("brew install"));
+    }
+
+    #[test]
+    fn test_run_doctor_command() {
+        let config = crate::core::render::RenderConfig {
+            format: crate::core::render::OutputFormat::Json,
+            pretty: false,
+        };
+
+        let result = run_doctor(config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_dependency_status_available_without_notes() {
+        let status = DependencyStatus {
+            name: "tool".to_string(),
+            available: true,
+            command: Some("tool".to_string()),
+            required: true,
+            notes: None,
+        };
+        let item = status.to_result_item();
+        assert!(item.excerpt.is_some());
+        // Should still produce valid output without notes
+        assert!(item.excerpt.as_ref().unwrap().contains("tool"));
+    }
+
+    #[test]
+    fn test_dependency_status_command_in_output() {
+        let status = DependencyStatus {
+            name: "ripgrep".to_string(),
+            available: true,
+            command: Some("rg".to_string()),
+            required: true,
+            notes: None,
+        };
+        let item = status.to_result_item();
+        // Command should be mentioned in excerpt
+        assert!(item.excerpt.as_ref().unwrap().contains("rg"));
+    }
+
+    #[test]
+    fn test_check_dependencies_has_notes() {
+        let deps = check_dependencies();
+        // All dependencies should have install notes
+        for dep in &deps {
+            assert!(dep.notes.is_some());
+        }
+    }
+
+    #[test]
+    fn test_check_dependencies_ast_grep_required() {
+        let deps = check_dependencies();
+        let ast = deps.iter().find(|d| d.name == "ast-grep").unwrap();
+        assert!(ast.required);
+    }
+
+    #[test]
+    fn test_dependency_status_source_mode() {
+        let status = DependencyStatus {
+            name: "test".to_string(),
+            available: true,
+            command: Some("test".to_string()),
+            required: true,
+            notes: None,
+        };
+        let item = status.to_result_item();
+        // Doctor results should have appropriate source mode
+        assert!(matches!(item.source_mode, crate::core::model::SourceMode::Scan));
+    }
 }

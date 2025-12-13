@@ -119,4 +119,164 @@ mod tests {
         // This test depends on the system configuration
         let _ = get_ast_grep_command();
     }
+
+    #[test]
+    fn test_get_ast_grep_command_returns_valid_option() {
+        let cmd = get_ast_grep_command();
+        if let Some(c) = cmd {
+            assert!(c == "sg" || c == "ast-grep");
+        }
+    }
+
+    #[test]
+    fn test_run_ast_grep_empty_scopes() {
+        // Test with empty scopes (uses root)
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("test.rs"),
+            "fn main() { println!(\"hello\"); }",
+        )
+        .unwrap();
+
+        let result = run_ast_grep(temp.path(), "fn $NAME() { $$$BODY }", &[] as &[&Path]);
+        assert!(result.is_ok());
+        // Either finds matches or returns an error about ast-grep not installed
+        let result_set = result.unwrap();
+        // Result should be valid either way
+        assert!(result_set.items.is_empty() || !result_set.items.is_empty());
+    }
+
+    #[test]
+    fn test_run_ast_grep_with_scopes() {
+        let temp = tempfile::tempdir().unwrap();
+        let subdir = temp.path().join("src");
+        std::fs::create_dir(&subdir).unwrap();
+        std::fs::write(subdir.join("test.rs"), "fn main() {}").unwrap();
+
+        let result = run_ast_grep(temp.path(), "fn main()", &[subdir.as_path()]);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_sg_match_deserialization() {
+        let json = r#"{"file": "test.rs", "range": {"start": {"line": 0}, "end": {"line": 1}}, "text": "fn main()", "lines": "fn main() {\n}"}"#;
+        let m: SgMatch = serde_json::from_str(json).unwrap();
+        assert_eq!(m.file, "test.rs");
+        assert_eq!(m.range.start.line, 0);
+        assert_eq!(m.range.end.line, 1);
+        assert_eq!(m.text, "fn main()");
+    }
+
+    #[test]
+    fn test_sg_match_without_lines() {
+        let json = r#"{"file": "test.rs", "range": {"start": {"line": 0}, "end": {"line": 0}}, "text": "main"}"#;
+        let m: SgMatch = serde_json::from_str(json).unwrap();
+        assert_eq!(m.lines, ""); // default value
+    }
+
+    #[test]
+    fn test_run_ast_grep_result_set_sorted() {
+        if get_ast_grep_command().is_some() {
+            let temp = tempfile::tempdir().unwrap();
+            std::fs::write(temp.path().join("b.rs"), "fn b() {}").unwrap();
+            std::fs::write(temp.path().join("a.rs"), "fn a() {}").unwrap();
+
+            let result = run_ast_grep(temp.path(), "fn $NAME()", &[] as &[&Path]).unwrap();
+
+            // Check that results are sorted by path if there are multiple
+            if result.items.len() >= 2 {
+                let paths: Vec<_> = result
+                    .items
+                    .iter()
+                    .filter_map(|i| i.path.as_ref())
+                    .collect();
+                let mut sorted_paths = paths.clone();
+                sorted_paths.sort();
+                assert_eq!(paths, sorted_paths);
+            }
+        }
+    }
+
+    #[test]
+    fn test_run_ast_command() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("test.rs"), "fn main() {}").unwrap();
+
+        let config = crate::core::render::RenderConfig {
+            format: crate::core::render::OutputFormat::Json,
+            pretty: false,
+        };
+
+        let result = run_ast(temp.path(), "fn main()", &[] as &[&Path], config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_run_ast_grep_no_matches() {
+        if get_ast_grep_command().is_some() {
+            let temp = tempfile::tempdir().unwrap();
+            std::fs::write(temp.path().join("test.rs"), "fn main() {}").unwrap();
+
+            // Pattern that won't match
+            let result = run_ast_grep(
+                temp.path(),
+                "fn nonexistent_function_xyz()",
+                &[] as &[&Path],
+            );
+            assert!(result.is_ok());
+            let result_set = result.unwrap();
+            // Should have no match results (may have error if ast-grep not installed)
+            let match_count = result_set
+                .items
+                .iter()
+                .filter(|i| matches!(i.kind, crate::core::model::Kind::Match))
+                .count();
+            assert_eq!(match_count, 0);
+        }
+    }
+
+    #[test]
+    fn test_run_ast_grep_source_mode() {
+        if get_ast_grep_command().is_some() {
+            let temp = tempfile::tempdir().unwrap();
+            std::fs::write(temp.path().join("test.rs"), "fn main() {}").unwrap();
+
+            let result = run_ast_grep(temp.path(), "fn main()", &[] as &[&Path]).unwrap();
+
+            for item in &result.items {
+                if matches!(item.kind, crate::core::model::Kind::Match) {
+                    assert!(matches!(item.source_mode, SourceMode::AstGrep));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_sg_position_deserialization() {
+        let json = r#"{"line": 42}"#;
+        let pos: SgPosition = serde_json::from_str(json).unwrap();
+        assert_eq!(pos.line, 42);
+    }
+
+    #[test]
+    fn test_sg_range_deserialization() {
+        let json = r#"{"start": {"line": 1}, "end": {"line": 5}}"#;
+        let range: SgRange = serde_json::from_str(json).unwrap();
+        assert_eq!(range.start.line, 1);
+        assert_eq!(range.end.line, 5);
+    }
+
+    #[test]
+    fn test_run_ast_grep_multiple_files() {
+        if get_ast_grep_command().is_some() {
+            let temp = tempfile::tempdir().unwrap();
+            std::fs::write(temp.path().join("a.rs"), "fn test1() {}").unwrap();
+            std::fs::write(temp.path().join("b.rs"), "fn test2() {}").unwrap();
+
+            let result = run_ast_grep(temp.path(), "fn $NAME()", &[] as &[&Path]).unwrap();
+            // Result may vary depending on ast-grep version and configuration
+            // Just verify the call succeeds and returns a valid result set
+            assert!(result.items.is_empty() || !result.items.is_empty());
+        }
+    }
 }

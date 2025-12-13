@@ -1138,4 +1138,236 @@ mod tests {
         assert_eq!("tree".parse::<DepsFormat>().unwrap(), DepsFormat::Tree);
         assert_eq!("table".parse::<DepsFormat>().unwrap(), DepsFormat::Table);
     }
+
+    #[test]
+    fn test_language_from_path_js_variants() {
+        assert_eq!(Language::from_path(Path::new("file.jsx")), Language::JavaScript);
+        assert_eq!(Language::from_path(Path::new("file.mjs")), Language::JavaScript);
+        assert_eq!(Language::from_path(Path::new("file.cjs")), Language::JavaScript);
+    }
+
+    #[test]
+    fn test_language_sg_lang() {
+        assert_eq!(Language::Rust.sg_lang(), Some("rust"));
+        assert_eq!(Language::TypeScript.sg_lang(), Some("typescript"));
+        assert_eq!(Language::JavaScript.sg_lang(), Some("javascript"));
+        assert_eq!(Language::Python.sg_lang(), Some("python"));
+        assert_eq!(Language::Unknown.sg_lang(), None);
+    }
+
+    #[test]
+    fn test_language_extensions() {
+        assert_eq!(Language::Rust.extensions(), &["rs"]);
+        assert_eq!(Language::TypeScript.extensions(), &["ts", "tsx"]);
+        assert_eq!(Language::JavaScript.extensions(), &["js", "jsx", "mjs", "cjs"]);
+        assert_eq!(Language::Python.extensions(), &["py"]);
+        assert_eq!(Language::Unknown.extensions(), &[] as &[&str]);
+    }
+
+    #[test]
+    fn test_dep_graph_new() {
+        let graph = DepGraph::new();
+        assert!(graph.files.is_empty());
+        assert!(graph.module_map.is_empty());
+    }
+
+    #[test]
+    fn test_dep_graph_default() {
+        let graph = DepGraph::default();
+        assert!(graph.files.is_empty());
+        assert!(graph.module_map.is_empty());
+    }
+
+    #[test]
+    fn test_dep_graph_get_forward_deps_empty() {
+        let graph = DepGraph::new();
+        let deps = graph.get_forward_deps("nonexistent.rs");
+        assert!(deps.is_empty());
+    }
+
+    #[test]
+    fn test_dep_graph_get_reverse_deps_empty() {
+        let graph = DepGraph::new();
+        let deps = graph.get_reverse_deps("nonexistent.rs");
+        assert!(deps.is_empty());
+    }
+
+    #[test]
+    fn test_dep_graph_with_files() {
+        let mut graph = DepGraph::new();
+        
+        graph.files.insert("main.rs".to_string(), FileDeps {
+            path: "main.rs".to_string(),
+            language: Language::Rust,
+            depends_on: vec![
+                Dependency {
+                    import_text: "use lib".to_string(),
+                    module: "lib".to_string(),
+                    resolved_path: Some("lib.rs".to_string()),
+                    line: 1,
+                }
+            ],
+            depended_by: vec![],
+        });
+        
+        graph.files.insert("lib.rs".to_string(), FileDeps {
+            path: "lib.rs".to_string(),
+            language: Language::Rust,
+            depends_on: vec![],
+            depended_by: vec![],
+        });
+
+        // Build reverse deps
+        graph.build_reverse_deps();
+        
+        // Check forward deps
+        let forward = graph.get_forward_deps("main.rs");
+        assert_eq!(forward, vec!["lib.rs".to_string()]);
+        
+        // Check reverse deps
+        let reverse = graph.get_reverse_deps("lib.rs");
+        assert_eq!(reverse, vec!["main.rs".to_string()]);
+    }
+
+    #[test]
+    fn test_dep_graph_find_cycles_empty() {
+        let graph = DepGraph::new();
+        let cycles = graph.find_cycles();
+        assert!(cycles.is_empty());
+    }
+
+    #[test]
+    fn test_dependency_creation() {
+        let dep = Dependency {
+            import_text: "import foo".to_string(),
+            module: "foo".to_string(),
+            resolved_path: Some("foo.ts".to_string()),
+            line: 5,
+        };
+        assert_eq!(dep.module, "foo");
+        assert_eq!(dep.line, 5);
+    }
+
+    #[test]
+    fn test_file_deps_creation() {
+        let file_deps = FileDeps {
+            path: "test.rs".to_string(),
+            language: Language::Rust,
+            depends_on: vec![],
+            depended_by: vec!["other.rs".to_string()],
+        };
+        assert_eq!(file_deps.path, "test.rs");
+        assert_eq!(file_deps.language, Language::Rust);
+    }
+
+    #[test]
+    fn test_extract_js_import_path_require() {
+        assert_eq!(
+            extract_js_import_path("const x = require('lodash')"),
+            Some("lodash".to_string())
+        );
+        assert_eq!(
+            extract_js_import_path("const x = require(\"lodash\")"),
+            Some("lodash".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_js_import_path_no_match() {
+        assert_eq!(extract_js_import_path("const x = 5"), None);
+        assert_eq!(extract_js_import_path("// comment"), None);
+        assert_eq!(extract_js_import_path(""), None);
+    }
+
+    #[test]
+    fn test_deps_format_default() {
+        let format = DepsFormat::default();
+        assert_eq!(format, DepsFormat::Jsonl);
+    }
+
+    #[test]
+    fn test_deps_format_parse_invalid() {
+        assert!("invalid".parse::<DepsFormat>().is_err());
+    }
+
+    #[test]
+    fn test_deps_format_parse_aliases() {
+        assert_eq!("graphviz".parse::<DepsFormat>().unwrap(), DepsFormat::Dot);
+        assert_eq!("mmd".parse::<DepsFormat>().unwrap(), DepsFormat::Mermaid);
+        assert_eq!("json".parse::<DepsFormat>().unwrap(), DepsFormat::Json);
+    }
+
+    #[test]
+    fn test_import_patterns_for_rust() {
+        let patterns = ImportPatterns::for_language(Language::Rust);
+        assert!(patterns.is_some());
+        let p = patterns.unwrap();
+        assert_eq!(p.lang, "rust");
+        assert!(!p.patterns.is_empty());
+    }
+
+    #[test]
+    fn test_import_patterns_for_typescript() {
+        let patterns = ImportPatterns::for_language(Language::TypeScript);
+        assert!(patterns.is_some());
+        let p = patterns.unwrap();
+        assert_eq!(p.lang, "typescript");
+    }
+
+    #[test]
+    fn test_import_patterns_for_javascript() {
+        let patterns = ImportPatterns::for_language(Language::JavaScript);
+        assert!(patterns.is_some());
+        let p = patterns.unwrap();
+        assert_eq!(p.lang, "javascript");
+    }
+
+    #[test]
+    fn test_import_patterns_for_python() {
+        let patterns = ImportPatterns::for_language(Language::Python);
+        assert!(patterns.is_some());
+        let p = patterns.unwrap();
+        assert_eq!(p.lang, "python");
+    }
+
+    #[test]
+    fn test_import_patterns_for_unknown() {
+        let patterns = ImportPatterns::for_language(Language::Unknown);
+        assert!(patterns.is_none());
+    }
+
+    #[test]
+    fn test_dep_graph_multiple_deps() {
+        let mut graph = DepGraph::new();
+        
+        graph.files.insert("main.rs".to_string(), FileDeps {
+            path: "main.rs".to_string(),
+            language: Language::Rust,
+            depends_on: vec![
+                Dependency {
+                    import_text: "use a".to_string(),
+                    module: "a".to_string(),
+                    resolved_path: Some("a.rs".to_string()),
+                    line: 1,
+                },
+                Dependency {
+                    import_text: "use b".to_string(),
+                    module: "b".to_string(),
+                    resolved_path: Some("b.rs".to_string()),
+                    line: 2,
+                },
+                Dependency {
+                    import_text: "use a".to_string(),
+                    module: "a".to_string(),
+                    resolved_path: Some("a.rs".to_string()),  // duplicate
+                    line: 3,
+                },
+            ],
+            depended_by: vec![],
+        });
+
+        let deps = graph.get_forward_deps("main.rs");
+        // Should be deduplicated and sorted
+        assert_eq!(deps, vec!["a.rs".to_string(), "b.rs".to_string()]);
+    }
 }

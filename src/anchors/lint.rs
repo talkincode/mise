@@ -284,4 +284,190 @@ content
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].code, "UNPAIRED_END");
     }
+
+    #[test]
+    fn test_lint_severity() {
+        assert_eq!(LintSeverity::Error, LintSeverity::Error);
+        assert_eq!(LintSeverity::Warning, LintSeverity::Warning);
+        assert_ne!(LintSeverity::Error, LintSeverity::Warning);
+    }
+
+    #[test]
+    fn test_lint_issue_error() {
+        let issue = LintIssue::error("TEST_CODE", "Test message", "test/path.rs", Some(42));
+        assert_eq!(issue.severity, LintSeverity::Error);
+        assert_eq!(issue.code, "TEST_CODE");
+        assert_eq!(issue.message, "Test message");
+        assert_eq!(issue.path, "test/path.rs");
+        assert_eq!(issue.line, Some(42));
+    }
+
+    #[test]
+    fn test_lint_issue_warning() {
+        let issue = LintIssue::warning("WARN_CODE", "Warning message", "src/lib.rs", None);
+        assert_eq!(issue.severity, LintSeverity::Warning);
+        assert_eq!(issue.code, "WARN_CODE");
+        assert_eq!(issue.message, "Warning message");
+        assert_eq!(issue.path, "src/lib.rs");
+        assert_eq!(issue.line, None);
+    }
+
+    #[test]
+    fn test_lint_issue_to_result_item_error() {
+        let issue = LintIssue::error("ERR_CODE", "Error message", "file.rs", Some(10));
+        let result = issue.to_result_item();
+
+        assert_eq!(result.kind, Kind::Error);
+        assert_eq!(result.path, Some("file.rs".to_string()));
+        assert!(result.range.is_some());
+        let range = result.range.unwrap();
+        // Range is an enum, check via matching
+        match range {
+            crate::core::model::Range::Line(line_range) => {
+                assert_eq!(line_range.start, 10);
+                assert_eq!(line_range.end, 10);
+            }
+            _ => panic!("Expected Line range"),
+        }
+        assert_eq!(result.excerpt, Some("Error message".to_string()));
+        assert_eq!(result.confidence, Confidence::High);
+        assert_eq!(result.source_mode, SourceMode::Anchor);
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].code, "ERR_CODE");
+    }
+
+    #[test]
+    fn test_lint_issue_to_result_item_warning() {
+        let issue = LintIssue::warning("WARN_CODE", "Warning message", "file.rs", None);
+        let result = issue.to_result_item();
+
+        assert_eq!(result.kind, Kind::Error);
+        assert_eq!(result.confidence, Confidence::Medium);
+        assert!(result.range.is_none());
+    }
+
+    #[test]
+    fn test_is_text_file() {
+        use std::path::PathBuf;
+
+        // Text files
+        assert!(is_text_file(&PathBuf::from("file.rs")));
+        assert!(is_text_file(&PathBuf::from("file.py")));
+        assert!(is_text_file(&PathBuf::from("file.js")));
+        assert!(is_text_file(&PathBuf::from("file.ts")));
+        assert!(is_text_file(&PathBuf::from("file.md")));
+        assert!(is_text_file(&PathBuf::from("file.txt")));
+        assert!(is_text_file(&PathBuf::from("file.json")));
+        assert!(is_text_file(&PathBuf::from("file.yaml")));
+        assert!(is_text_file(&PathBuf::from("file.toml")));
+        assert!(is_text_file(&PathBuf::from("file.html")));
+        assert!(is_text_file(&PathBuf::from("file.css")));
+        assert!(is_text_file(&PathBuf::from("file.sh")));
+        assert!(is_text_file(&PathBuf::from("file.go")));
+        assert!(is_text_file(&PathBuf::from("file.java")));
+        assert!(is_text_file(&PathBuf::from("file.rb")));
+        assert!(is_text_file(&PathBuf::from("file.php")));
+        assert!(is_text_file(&PathBuf::from("file.swift")));
+        assert!(is_text_file(&PathBuf::from("file.c")));
+        assert!(is_text_file(&PathBuf::from("file.cpp")));
+        assert!(is_text_file(&PathBuf::from("file.h")));
+
+        // Non-text files
+        assert!(!is_text_file(&PathBuf::from("file.exe")));
+        assert!(!is_text_file(&PathBuf::from("file.png")));
+        assert!(!is_text_file(&PathBuf::from("file.jpg")));
+        assert!(!is_text_file(&PathBuf::from("file.pdf")));
+        assert!(!is_text_file(&PathBuf::from("file.zip")));
+        assert!(!is_text_file(&PathBuf::from("no_extension")));
+    }
+
+    #[test]
+    fn test_is_text_file_case_insensitive() {
+        use std::path::PathBuf;
+
+        assert!(is_text_file(&PathBuf::from("file.RS")));
+        assert!(is_text_file(&PathBuf::from("file.Py")));
+        assert!(is_text_file(&PathBuf::from("FILE.MD")));
+    }
+
+    #[test]
+    fn test_check_pairing_nested_markers() {
+        let content = r#"
+<!--Q:begin id=outer-->
+outer content
+<!--Q:begin id=inner-->
+inner content
+<!--Q:end id=inner-->
+more outer content
+<!--Q:end id=outer-->
+"#;
+        let issues = check_pairing(content, "test.md");
+        assert!(issues.is_empty());
+    }
+
+    #[test]
+    fn test_check_pairing_multiple_unpaired() {
+        let content = r#"
+<!--Q:begin id=test1-->
+<!--Q:begin id=test2-->
+content
+"#;
+        let issues = check_pairing(content, "test.md");
+        assert_eq!(issues.len(), 2);
+        assert!(issues.iter().all(|i| i.code == "UNPAIRED_BEGIN"));
+    }
+
+    #[test]
+    fn test_check_pairing_mismatched_ids() {
+        let content = r#"
+<!--Q:begin id=test1-->
+content
+<!--Q:end id=test2-->
+"#;
+        let issues = check_pairing(content, "test.md");
+        // Should have unpaired begin for test1 and unpaired end for test2
+        assert_eq!(issues.len(), 2);
+        let codes: Vec<&str> = issues.iter().map(|i| i.code.as_str()).collect();
+        assert!(codes.contains(&"UNPAIRED_BEGIN"));
+        assert!(codes.contains(&"UNPAIRED_END"));
+    }
+
+    #[test]
+    fn test_check_pairing_empty_content() {
+        let content = "";
+        let issues = check_pairing(content, "test.md");
+        assert!(issues.is_empty());
+    }
+
+    #[test]
+    fn test_lint_issue_clone() {
+        let issue = LintIssue::error("CODE", "message", "path.rs", Some(1));
+        let cloned = issue.clone();
+        assert_eq!(issue.code, cloned.code);
+        assert_eq!(issue.message, cloned.message);
+        assert_eq!(issue.path, cloned.path);
+    }
+
+    #[test]
+    fn test_lint_issue_debug() {
+        let issue = LintIssue::error("CODE", "message", "path.rs", Some(1));
+        let debug_str = format!("{:?}", issue);
+        assert!(debug_str.contains("LintIssue"));
+        assert!(debug_str.contains("CODE"));
+    }
+
+    #[test]
+    fn test_lint_severity_debug() {
+        let error = LintSeverity::Error;
+        let warning = LintSeverity::Warning;
+        assert!(format!("{:?}", error).contains("Error"));
+        assert!(format!("{:?}", warning).contains("Warning"));
+    }
+
+    #[test]
+    fn test_lint_severity_clone() {
+        let error = LintSeverity::Error;
+        let cloned = error;
+        assert_eq!(error, cloned);
+    }
 }

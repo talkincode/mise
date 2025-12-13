@@ -648,4 +648,179 @@ mod tests {
         assert!(analysis.changed_files.is_empty());
         assert_eq!(analysis.total_affected(), 0);
     }
+
+    #[test]
+    fn test_diff_source_from_args_commit_over_diff() {
+        // commit option takes precedence when both provided
+        let source = DiffSource::from_args(false, Some("commit"), Some("base..head"));
+        assert!(matches!(source, DiffSource::Commit(_)));
+    }
+
+    #[test]
+    fn test_diff_source_from_args_diff_as_commit() {
+        // single ref without ".." is treated as commit
+        let source = DiffSource::from_args(false, None, Some("single_ref"));
+        assert!(matches!(source, DiffSource::Commit(_)));
+    }
+
+    #[test]
+    fn test_diff_source_git_args_unstaged() {
+        let source = DiffSource::Unstaged;
+        let args = source.git_args();
+        assert_eq!(args, vec!["diff", "--name-only"]);
+    }
+
+    #[test]
+    fn test_diff_source_git_args_staged() {
+        let source = DiffSource::Staged;
+        let args = source.git_args();
+        assert_eq!(args, vec!["diff", "--staged", "--name-only"]);
+    }
+
+    #[test]
+    fn test_diff_source_git_args_commit() {
+        let source = DiffSource::Commit("abc123".to_string());
+        let args = source.git_args();
+        assert_eq!(args, vec!["diff", "--name-only", "abc123^", "abc123"]);
+    }
+
+    #[test]
+    fn test_diff_source_git_args_diff() {
+        let source = DiffSource::Diff("main".to_string(), "feature".to_string());
+        let args = source.git_args();
+        assert_eq!(args, vec!["diff", "--name-only", "main..feature"]);
+    }
+
+    #[test]
+    fn test_diff_source_description() {
+        assert_eq!(DiffSource::Unstaged.description(), "unstaged changes");
+        assert_eq!(DiffSource::Staged.description(), "staged changes");
+        assert_eq!(
+            DiffSource::Commit("abc".to_string()).description(),
+            "commit abc"
+        );
+        assert_eq!(
+            DiffSource::Diff("main".to_string(), "dev".to_string()).description(),
+            "main..dev"
+        );
+    }
+
+    #[test]
+    fn test_impact_analysis_total_affected() {
+        let mut analysis = ImpactAnalysis::new("test");
+        analysis.changed_files = vec!["a.rs".to_string(), "b.rs".to_string()];
+        analysis.direct_impacts = vec!["c.rs".to_string()];
+        analysis.transitive_impacts = vec!["d.rs".to_string(), "e.rs".to_string()];
+        assert_eq!(analysis.total_affected(), 5);
+    }
+
+    #[test]
+    fn test_impact_format_parse_invalid() {
+        let result = "invalid".parse::<ImpactFormat>();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_impact_format_default() {
+        let format: ImpactFormat = Default::default();
+        assert_eq!(format, ImpactFormat::Jsonl);
+    }
+
+    #[test]
+    fn test_is_anchor_candidate() {
+        use std::path::PathBuf;
+        assert!(is_anchor_candidate(&PathBuf::from("test.md")));
+        assert!(is_anchor_candidate(&PathBuf::from("test.rs")));
+        assert!(is_anchor_candidate(&PathBuf::from("test.py")));
+        assert!(is_anchor_candidate(&PathBuf::from("test.ts")));
+        assert!(is_anchor_candidate(&PathBuf::from("test.js")));
+        assert!(is_anchor_candidate(&PathBuf::from("test.go")));
+        assert!(is_anchor_candidate(&PathBuf::from("test.java")));
+        assert!(is_anchor_candidate(&PathBuf::from("test.json")));
+        assert!(is_anchor_candidate(&PathBuf::from("test.yaml")));
+        assert!(!is_anchor_candidate(&PathBuf::from("test.exe")));
+        assert!(!is_anchor_candidate(&PathBuf::from("test.bin")));
+        assert!(!is_anchor_candidate(&PathBuf::from("noext")));
+    }
+
+    #[test]
+    fn test_compute_direct_impacts_empty() {
+        let graph = DepGraph::default();
+        let changed = vec!["a.rs".to_string()];
+        let impacts = compute_direct_impacts(&changed, &graph);
+        assert!(impacts.is_empty());
+    }
+
+    #[test]
+    fn test_compute_transitive_impacts_empty() {
+        let graph = DepGraph::default();
+        let changed = vec!["a.rs".to_string()];
+        let direct = vec![];
+        let impacts = compute_transitive_impacts(&changed, &direct, &graph, 3);
+        assert!(impacts.is_empty());
+    }
+
+    #[test]
+    fn test_format_summary_empty() {
+        let analysis = ImpactAnalysis::new("test");
+        let output = format_summary(&analysis);
+        assert!(output.contains("No changes detected"));
+    }
+
+    #[test]
+    fn test_format_summary_with_changes() {
+        let mut analysis = ImpactAnalysis::new("test");
+        analysis.changed_files = vec!["a.rs".to_string()];
+        let output = format_summary(&analysis);
+        assert!(output.contains("a.rs"));
+    }
+
+    #[test]
+    fn test_format_table_empty() {
+        let analysis = ImpactAnalysis::new("test");
+        let output = format_table(&analysis);
+        assert!(output.contains("No changes detected"));
+    }
+
+    #[test]
+    fn test_format_table_with_changes() {
+        let mut analysis = ImpactAnalysis::new("test");
+        analysis.changed_files = vec!["a.rs".to_string()];
+        analysis.direct_impacts = vec!["b.rs".to_string()];
+        let output = format_table(&analysis);
+        assert!(output.contains("a.rs"));
+        assert!(output.contains("b.rs"));
+        assert!(output.contains("changed"));
+        assert!(output.contains("direct"));
+    }
+
+    #[test]
+    fn test_format_summary_all_sections() {
+        let mut analysis = ImpactAnalysis::new("test source");
+        analysis.changed_files = vec!["change.rs".to_string()];
+        analysis.direct_impacts = vec!["direct.rs".to_string()];
+        analysis.transitive_impacts = vec!["trans.rs".to_string()];
+        analysis.anchors_affected = vec!["anchor1".to_string()];
+        
+        let output = format_summary(&analysis);
+        assert!(output.contains("test source"));
+        // Check for the emoji markers instead of text headers
+        assert!(output.contains("🔴"));  // Changed files
+        assert!(output.contains("🟠"));  // Direct impacts
+        assert!(output.contains("🟡"));  // Transitive impacts  
+        assert!(output.contains("📌"));  // Affected anchors
+    }
+
+    #[test]
+    fn test_impact_analysis_serialization() {
+        let mut analysis = ImpactAnalysis::new("test");
+        analysis.changed_files = vec!["a.rs".to_string()];
+        
+        let json = serde_json::to_string(&analysis).unwrap();
+        assert!(json.contains("changed_files"));
+        assert!(json.contains("a.rs"));
+        
+        let parsed: ImpactAnalysis = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.changed_files, analysis.changed_files);
+    }
 }

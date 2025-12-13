@@ -154,4 +154,116 @@ mod tests {
         assert!(!is_anchor_candidate(Path::new("image.png")));
         assert!(!is_anchor_candidate(Path::new("binary.exe")));
     }
+
+    #[test]
+    fn test_is_anchor_candidate_various_extensions() {
+        assert!(is_anchor_candidate(Path::new("test.txt")));
+        assert!(is_anchor_candidate(Path::new("test.py")));
+        assert!(is_anchor_candidate(Path::new("test.js")));
+        assert!(is_anchor_candidate(Path::new("test.ts")));
+        assert!(is_anchor_candidate(Path::new("test.jsx")));
+        assert!(is_anchor_candidate(Path::new("test.tsx")));
+        assert!(is_anchor_candidate(Path::new("test.html")));
+        assert!(is_anchor_candidate(Path::new("test.css")));
+        assert!(is_anchor_candidate(Path::new("test.json")));
+        assert!(is_anchor_candidate(Path::new("test.yaml")));
+        assert!(is_anchor_candidate(Path::new("test.yml")));
+        assert!(is_anchor_candidate(Path::new("test.toml")));
+        assert!(is_anchor_candidate(Path::new("test.xml")));
+        assert!(is_anchor_candidate(Path::new("test.sh")));
+        assert!(is_anchor_candidate(Path::new("test.bash")));
+        assert!(is_anchor_candidate(Path::new("test.zsh")));
+        assert!(is_anchor_candidate(Path::new("test.c")));
+        assert!(is_anchor_candidate(Path::new("test.cpp")));
+        assert!(is_anchor_candidate(Path::new("test.h")));
+        assert!(is_anchor_candidate(Path::new("test.hpp")));
+        assert!(is_anchor_candidate(Path::new("test.java")));
+        assert!(is_anchor_candidate(Path::new("test.go")));
+        assert!(is_anchor_candidate(Path::new("test.rb")));
+        assert!(is_anchor_candidate(Path::new("test.php")));
+        assert!(is_anchor_candidate(Path::new("test.swift")));
+    }
+
+    #[test]
+    fn test_is_anchor_candidate_case_insensitive() {
+        assert!(is_anchor_candidate(Path::new("test.MD")));
+        assert!(is_anchor_candidate(Path::new("test.RS")));
+        assert!(is_anchor_candidate(Path::new("test.Py")));
+    }
+
+    #[test]
+    fn test_is_anchor_candidate_no_extension() {
+        assert!(!is_anchor_candidate(Path::new("Makefile")));
+        assert!(!is_anchor_candidate(Path::new("README")));
+    }
+
+    #[test]
+    fn test_list_anchors_empty_dir() {
+        let temp = tempfile::tempdir().unwrap();
+        let result = list_anchors(temp.path(), None);
+        assert!(result.is_ok());
+        assert!(result.unwrap().items.is_empty());
+    }
+
+    #[test]
+    fn test_list_anchors_with_anchors() {
+        let temp = tempfile::tempdir().unwrap();
+        let content = "# Test\n<!--Q:begin id=test1 tags=a,b v=1-->\nContent\n<!--Q:end id=test1-->\n";
+        std::fs::write(temp.path().join("test.md"), content).unwrap();
+        
+        let result = list_anchors(temp.path(), None).unwrap();
+        assert_eq!(result.items.len(), 1);
+    }
+
+    #[test]
+    fn test_list_anchors_with_tag_filter() {
+        let temp = tempfile::tempdir().unwrap();
+        let content = "<!--Q:begin id=a tags=foo v=1-->\nA\n<!--Q:end id=a-->\n<!--Q:begin id=b tags=bar v=1-->\nB\n<!--Q:end id=b-->\n";
+        std::fs::write(temp.path().join("test.md"), content).unwrap();
+        
+        let result = list_anchors(temp.path(), Some("foo")).unwrap();
+        assert_eq!(result.items.len(), 1);
+    }
+
+    #[test]
+    fn test_get_anchor_not_found() {
+        let temp = tempfile::tempdir().unwrap();
+        let content = "# Test\n<!--Q:begin id=test1 v=1-->\nContent\n<!--Q:end id=test1-->\n";
+        std::fs::write(temp.path().join("test.md"), content).unwrap();
+        
+        let result = get_anchor(temp.path(), "nonexistent", None).unwrap();
+        assert!(result.items.is_empty());
+    }
+
+    #[test]
+    fn test_get_anchor_found() {
+        let temp = tempfile::tempdir().unwrap();
+        let content = "# Test\n<!--Q:begin id=test1 v=1-->\nContent\n<!--Q:end id=test1-->\n";
+        std::fs::write(temp.path().join("test.md"), content).unwrap();
+        
+        let result = get_anchor(temp.path(), "test1", None).unwrap();
+        assert_eq!(result.items.len(), 1);
+    }
+
+    #[test]
+    fn test_get_anchor_with_neighbors() {
+        let temp = tempfile::tempdir().unwrap();
+        let content = "<!--Q:begin id=a tags=common v=1-->\nA\n<!--Q:end id=a-->\n<!--Q:begin id=b tags=common v=1-->\nB\n<!--Q:end id=b-->\n<!--Q:begin id=c tags=other v=1-->\nC\n<!--Q:end id=c-->\n";
+        std::fs::write(temp.path().join("test.md"), content).unwrap();
+        
+        let result = get_anchor(temp.path(), "a", Some(2)).unwrap();
+        // Should have anchor 'a' and neighbor 'b' (which shares tag 'common')
+        assert!(result.items.len() >= 1);
+    }
+
+    #[test]
+    fn test_is_anchor_candidate_binary_extensions() {
+        assert!(!is_anchor_candidate(Path::new("test.jpg")));
+        assert!(!is_anchor_candidate(Path::new("test.gif")));
+        assert!(!is_anchor_candidate(Path::new("test.pdf")));
+        assert!(!is_anchor_candidate(Path::new("test.zip")));
+        assert!(!is_anchor_candidate(Path::new("test.tar")));
+        assert!(!is_anchor_candidate(Path::new("test.dll")));
+        assert!(!is_anchor_candidate(Path::new("test.so")));
+    }
 }

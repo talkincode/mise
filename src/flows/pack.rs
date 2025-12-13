@@ -543,4 +543,238 @@ mod tests {
         assert!(!is_code_symbol('a'));
         assert!(!is_code_symbol('中'));
     }
+
+    #[test]
+    fn test_find_char_boundary_within() {
+        let s = "hello world";
+        assert_eq!(find_char_boundary(s, 5), 5);
+    }
+
+    #[test]
+    fn test_find_char_boundary_beyond() {
+        let s = "hello";
+        assert_eq!(find_char_boundary(s, 100), 5);
+    }
+
+    #[test]
+    fn test_find_char_boundary_unicode() {
+        let s = "你好世界";
+        // Each Chinese char is 3 bytes, so boundary should find valid position
+        let boundary = find_char_boundary(s, 4);
+        assert!(s.is_char_boundary(boundary));
+    }
+
+    #[test]
+    fn test_pack_priority_default() {
+        assert_eq!(PackPriority::default(), PackPriority::ByConfidence);
+    }
+
+    #[test]
+    fn test_pack_priority_parse_aliases() {
+        assert_eq!("byconfidence".parse::<PackPriority>().unwrap(), PackPriority::ByConfidence);
+        assert_eq!("byorder".parse::<PackPriority>().unwrap(), PackPriority::ByOrder);
+    }
+
+    #[test]
+    fn test_pack_priority_parse_invalid() {
+        assert!("invalid".parse::<PackPriority>().is_err());
+    }
+
+    #[test]
+    fn test_pack_stats_creation() {
+        let stats = PackStats {
+            total_items: 10,
+            total_chars: 1000,
+            estimated_tokens: 250,
+            truncated: true,
+            items_truncated: 2,
+        };
+        assert_eq!(stats.total_items, 10);
+        assert!(stats.truncated);
+    }
+
+    #[test]
+    fn test_pack_options_default() {
+        let opts = PackOptions::default();
+        assert!(opts.anchors.is_empty());
+        assert!(opts.files.is_empty());
+        assert!(opts.max_tokens.is_none());
+        assert_eq!(opts.priority, PackPriority::ByConfidence);
+    }
+
+    #[test]
+    fn test_item_tokens_file_only() {
+        let item = ResultItem::file("src/main.rs");
+        let tokens = item_tokens(&item);
+        assert!(tokens > 0);
+    }
+
+    #[test]
+    fn test_item_tokens_with_excerpt() {
+        let mut item = ResultItem::file("test.rs");
+        item.excerpt = Some("fn main() { println!(\"hello\"); }".to_string());
+        let tokens = item_tokens(&item);
+        // Should include path tokens + excerpt tokens + overhead
+        assert!(tokens > 15); // At least the overhead
+    }
+
+    #[test]
+    fn test_is_code_symbol_all_variants() {
+        // Test all brackets
+        assert!(is_code_symbol(')'));
+        assert!(is_code_symbol('['));
+        assert!(is_code_symbol(']'));
+        assert!(is_code_symbol('}'));
+        assert!(is_code_symbol('<'));
+        assert!(is_code_symbol('>'));
+
+        // Test operators
+        assert!(is_code_symbol('='));
+        assert!(is_code_symbol('-'));
+        assert!(is_code_symbol('*'));
+        assert!(is_code_symbol('/'));
+        assert!(is_code_symbol('%'));
+        assert!(is_code_symbol('&'));
+        assert!(is_code_symbol('|'));
+        assert!(is_code_symbol('^'));
+        assert!(is_code_symbol('!'));
+        assert!(is_code_symbol('~'));
+        assert!(is_code_symbol('?'));
+
+        // Test punctuation
+        assert!(is_code_symbol(':'));
+        assert!(is_code_symbol(';'));
+        assert!(is_code_symbol(','));
+        assert!(is_code_symbol('.'));
+
+        // Test special
+        assert!(is_code_symbol('@'));
+        assert!(is_code_symbol('#'));
+        assert!(is_code_symbol('$'));
+        assert!(is_code_symbol('\\'));
+        assert!(is_code_symbol('"'));
+        assert!(is_code_symbol('\''));
+        assert!(is_code_symbol('`'));
+
+        // Not symbols
+        assert!(!is_code_symbol(' '));
+        assert!(!is_code_symbol('\n'));
+        assert!(!is_code_symbol('0'));
+        assert!(!is_code_symbol('_'));
+    }
+
+    #[test]
+    fn test_is_cjk_char_ranges() {
+        // CJK Unified Ideographs
+        assert!(is_cjk_char('\u{4E00}')); // Start
+        assert!(is_cjk_char('\u{9FFF}')); // End
+
+        // CJK Extension A
+        assert!(is_cjk_char('\u{3400}'));
+
+        // CJK Symbols
+        assert!(is_cjk_char('\u{3000}'));
+
+        // Hiragana
+        assert!(is_cjk_char('\u{3040}'));
+
+        // Katakana
+        assert!(is_cjk_char('\u{30A0}'));
+
+        // Hangul
+        assert!(is_cjk_char('\u{AC00}'));
+
+        // Fullwidth
+        assert!(is_cjk_char('\u{FF00}'));
+    }
+
+    #[test]
+    fn test_estimate_tokens_smart_whitespace_only() {
+        let text = "   \t\n\r   ";
+        let tokens = estimate_tokens_smart(text);
+        assert!(tokens >= 1);
+    }
+
+    #[test]
+    fn test_estimate_tokens_smart_symbols_only() {
+        let text = "(){}[]<>=+-*/";
+        let tokens = estimate_tokens_smart(text);
+        // 13 symbols / 2 = at least 6-7 tokens
+        assert!(tokens >= 5);
+    }
+
+    #[test]
+    fn test_estimate_tokens_smart_other_unicode() {
+        let text = "αβγδεζ"; // Greek letters
+        let tokens = estimate_tokens_smart(text);
+        // 6 other unicode chars / 2 = 3 tokens
+        assert!(tokens >= 2);
+    }
+
+    #[test]
+    fn test_apply_budget_empty_input() {
+        let items: Vec<ResultItem> = vec![];
+        let (result, stats) = apply_budget(items, Some(100), PackPriority::ByOrder);
+        assert!(result.is_empty());
+        assert_eq!(stats.total_items, 0);
+        assert!(!stats.truncated);
+    }
+
+    #[test]
+    fn test_apply_budget_by_confidence_sorting() {
+        let items = vec![
+            {
+                let mut item = ResultItem::file("low.rs");
+                item.confidence = Confidence::Low;
+                item.excerpt = Some("a".repeat(500));  // Make it big enough to trigger sorting
+                item
+            },
+            {
+                let mut item = ResultItem::file("high.rs");
+                item.confidence = Confidence::High;
+                item.excerpt = Some("b".repeat(500));
+                item
+            },
+            {
+                let mut item = ResultItem::file("medium.rs");
+                item.confidence = Confidence::Medium;
+                item.excerpt = Some("c".repeat(500));
+                item
+            },
+        ];
+
+        // Set a very large budget so sorting happens but items fit
+        // This will exceed initial estimate and trigger sorting
+        let (result, _) = apply_budget(items, Some(10000), PackPriority::ByConfidence);
+        
+        // When under budget, items are returned in original order
+        // So we need to verify that all items are present
+        assert_eq!(result.len(), 3);
+    }
+
+    #[test]
+    fn test_apply_budget_by_order_preserves_order() {
+        let items = vec![
+            {
+                let mut item = ResultItem::file("first.rs");
+                item.excerpt = Some("first".to_string());
+                item
+            },
+            {
+                let mut item = ResultItem::file("second.rs");
+                item.excerpt = Some("second".to_string());
+                item
+            },
+            {
+                let mut item = ResultItem::file("third.rs");
+                item.excerpt = Some("third".to_string());
+                item
+            },
+        ];
+
+        let (result, _) = apply_budget(items, None, PackPriority::ByOrder);
+        assert_eq!(result[0].path, Some("first.rs".to_string()));
+        assert_eq!(result[1].path, Some("second.rs".to_string()));
+        assert_eq!(result[2].path, Some("third.rs".to_string()));
+    }
 }

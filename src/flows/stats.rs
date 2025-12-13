@@ -69,7 +69,7 @@ fn is_cjk_char(c: char) -> bool {
         || (0x3040..=0x309F).contains(&cp)  // Hiragana
         || (0x30A0..=0x30FF).contains(&cp)  // Katakana
         || (0xAC00..=0xD7AF).contains(&cp)  // Hangul Syllables
-        || (0xFF00..=0xFFEF).contains(&cp)  // Fullwidth Forms
+        || (0xFF00..=0xFFEF).contains(&cp) // Fullwidth Forms
 }
 
 /// Check if a character is a code symbol
@@ -77,9 +77,36 @@ fn is_cjk_char(c: char) -> bool {
 fn is_code_symbol(c: char) -> bool {
     matches!(
         c,
-        '(' | ')' | '[' | ']' | '{' | '}' | '<' | '>' | '=' | '+' | '-' | '*' | '/' | '%'
-            | '&' | '|' | '^' | '!' | '~' | '?' | ':' | ';' | ',' | '.' | '@' | '#' | '$'
-            | '\\' | '"' | '\'' | '`'
+        '(' | ')'
+            | '['
+            | ']'
+            | '{'
+            | '}'
+            | '<'
+            | '>'
+            | '='
+            | '+'
+            | '-'
+            | '*'
+            | '/'
+            | '%'
+            | '&'
+            | '|'
+            | '^'
+            | '!'
+            | '~'
+            | '?'
+            | ':'
+            | ';'
+            | ','
+            | '.'
+            | '@'
+            | '#'
+            | '$'
+            | '\\'
+            | '"'
+            | '\''
+            | '`'
     )
 }
 
@@ -331,7 +358,9 @@ pub fn run_stats(
     top_n: usize,
     config: RenderConfig,
 ) -> Result<()> {
-    let ext_refs: Option<Vec<&str>> = extensions.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect());
+    let ext_refs: Option<Vec<&str>> = extensions
+        .as_ref()
+        .map(|v| v.iter().map(|s| s.as_str()).collect());
     let ext_slice: Option<&[&str]> = ext_refs.as_deref();
 
     let stats = calculate_project_stats(root, scope, ext_slice, top_n)?;
@@ -443,7 +472,175 @@ mod tests {
     #[test]
     fn test_stats_format_parse() {
         assert_eq!("json".parse::<StatsFormat>().unwrap(), StatsFormat::Json);
-        assert_eq!("summary".parse::<StatsFormat>().unwrap(), StatsFormat::Summary);
+        assert_eq!(
+            "summary".parse::<StatsFormat>().unwrap(),
+            StatsFormat::Summary
+        );
         assert_eq!("table".parse::<StatsFormat>().unwrap(), StatsFormat::Table);
+    }
+
+    #[test]
+    fn test_stats_format_invalid() {
+        assert!("invalid".parse::<StatsFormat>().is_err());
+    }
+
+    #[test]
+    fn test_is_code_symbol() {
+        assert!(is_code_symbol('('));
+        assert!(is_code_symbol(')'));
+        assert!(is_code_symbol('['));
+        assert!(is_code_symbol('{'));
+        assert!(is_code_symbol(';'));
+        assert!(is_code_symbol('='));
+        assert!(!is_code_symbol('a'));
+        assert!(!is_code_symbol('中'));
+    }
+
+    #[test]
+    fn test_estimate_tokens_empty() {
+        assert_eq!(estimate_tokens_smart(""), 0);
+    }
+
+    #[test]
+    fn test_estimate_tokens_whitespace() {
+        let text = "   \n\t  ";
+        let tokens = estimate_tokens_smart(text);
+        // Whitespace may still produce some tokens depending on tokenization
+        assert!(tokens < 10); // Should be very few tokens
+    }
+
+    #[test]
+    fn test_estimate_tokens_code() {
+        let code = "fn main() { println!(\"hello\"); }";
+        let tokens = estimate_tokens_smart(code);
+        assert!(tokens > 0);
+    }
+
+    #[test]
+    fn test_estimate_tokens_mixed() {
+        let mixed = "Hello 你好 World 世界";
+        let tokens = estimate_tokens_smart(mixed);
+        assert!(tokens > 0);
+    }
+
+    #[test]
+    fn test_project_stats_default() {
+        let stats = ProjectStats::default();
+        assert_eq!(stats.total_files, 0);
+        assert_eq!(stats.total_chars, 0);
+        assert_eq!(stats.total_tokens, 0);
+        assert!(stats.anchors_by_tag.is_empty());
+    }
+
+    #[test]
+    fn test_file_stats_creation() {
+        let file_stats = FileStats {
+            path: "test.md".to_string(),
+            lines: 10,
+            chars: 100,
+            chars_no_space: 80,
+            words: 20,
+            cjk_chars: 5,
+            tokens: 30,
+            anchors: 2,
+        };
+        assert_eq!(file_stats.path, "test.md");
+        assert_eq!(file_stats.lines, 10);
+        assert_eq!(file_stats.chars, 100);
+        assert_eq!(file_stats.anchors, 2);
+    }
+
+    #[test]
+    fn test_file_stats_default() {
+        let stats = FileStats::default();
+        assert_eq!(stats.path, "");
+        assert_eq!(stats.chars, 0);
+        assert_eq!(stats.words, 0);
+        assert_eq!(stats.lines, 0);
+    }
+
+    #[test]
+    fn test_project_stats_with_data() {
+        let mut stats = ProjectStats {
+            total_files: 5,
+            total_chars: 1000,
+            total_words: 200,
+            total_tokens: 300,
+            ..Default::default()
+        };
+        stats.anchors_by_tag.insert("chapter".to_string(), 3);
+
+        assert_eq!(stats.total_files, 5);
+        assert_eq!(stats.anchors_by_tag.get("chapter"), Some(&3));
+    }
+
+    #[test]
+    fn test_calculate_file_stats() {
+        let temp = tempfile::tempdir().unwrap();
+        let file_path = temp.path().join("test.md");
+        std::fs::write(&file_path, "Hello world\nThis is a test.\n").unwrap();
+
+        let stats = calculate_file_stats(&file_path, "test.md");
+        assert!(stats.is_some());
+        let stats = stats.unwrap();
+        assert_eq!(stats.path, "test.md");
+        assert_eq!(stats.lines, 2);
+        assert!(stats.chars > 0);
+        assert!(stats.words > 0);
+    }
+
+    #[test]
+    fn test_calculate_file_stats_nonexistent() {
+        let stats = calculate_file_stats(Path::new("/nonexistent/path.txt"), "path.txt");
+        assert!(stats.is_none());
+    }
+
+    #[test]
+    fn test_calculate_file_stats_with_cjk() {
+        let temp = tempfile::tempdir().unwrap();
+        let file_path = temp.path().join("test.md");
+        std::fs::write(&file_path, "你好世界 Hello World").unwrap();
+
+        let stats = calculate_file_stats(&file_path, "test.md").unwrap();
+        assert!(stats.cjk_chars >= 4);
+        assert!(stats.words >= 2);
+    }
+
+    #[test]
+    fn test_calculate_project_stats() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("file1.md"), "Hello world").unwrap();
+        std::fs::write(temp.path().join("file2.txt"), "Test content").unwrap();
+
+        let stats = calculate_project_stats(temp.path(), None, None, 10).unwrap();
+        assert!(stats.total_files >= 2);
+        assert!(stats.total_chars > 0);
+    }
+
+    #[test]
+    fn test_stats_format_default() {
+        let format: StatsFormat = Default::default();
+        assert_eq!(format, StatsFormat::Standard);
+    }
+
+    #[test]
+    fn test_stats_to_result_set() {
+        let stats = ProjectStats {
+            total_files: 10,
+            total_chars: 1000,
+            total_words: 200,
+            ..Default::default()
+        };
+
+        let result_set = stats_to_result_set(&stats);
+        assert!(!result_set.items.is_empty());
+    }
+
+    #[test]
+    fn test_estimate_tokens_other_unicode() {
+        // Test with non-ASCII, non-CJK characters (like emoji or accented chars)
+        let text = "Café résumé naïve";
+        let tokens = estimate_tokens_smart(text);
+        assert!(tokens > 0);
     }
 }

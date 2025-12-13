@@ -332,4 +332,346 @@ mod tests {
         assert_eq!(set.items[0].path, Some("src/a.rs".to_string()));
         assert_eq!(set.items[1].path, Some("src/b.rs".to_string()));
     }
+
+    #[test]
+    fn test_result_item_match_result() {
+        let item = ResultItem::match_result("test.rs", Range::lines(10, 20), "content");
+        assert_eq!(item.kind, Kind::Match);
+        assert_eq!(item.path, Some("test.rs".to_string()));
+        assert!(matches!(item.range, Some(Range::Line(_))));
+        assert_eq!(item.excerpt, Some("content".to_string()));
+        assert_eq!(item.source_mode, SourceMode::Rg);
+    }
+
+    #[test]
+    fn test_result_item_extract() {
+        let item = ResultItem::extract("lib.rs", Range::lines(1, 5), "use std;");
+        assert_eq!(item.kind, Kind::Extract);
+        assert_eq!(item.source_mode, SourceMode::Scan);
+    }
+
+    #[test]
+    fn test_result_item_anchor() {
+        let item = ResultItem::anchor("doc.md", Range::lines(5, 10));
+        assert_eq!(item.kind, Kind::Anchor);
+        assert_eq!(item.source_mode, SourceMode::Anchor);
+        assert!(item.excerpt.is_none());
+    }
+
+    #[test]
+    fn test_result_item_error() {
+        let item = ResultItem::error(MiseError::new("ERR001", "Something went wrong"));
+        assert_eq!(item.kind, Kind::Error);
+        assert_eq!(item.errors.len(), 1);
+        assert_eq!(item.errors[0].code, "ERR001");
+        assert_eq!(item.errors[0].message, "Something went wrong");
+    }
+
+    #[test]
+    fn test_result_item_with_meta() {
+        let meta = Meta {
+            mtime_ms: Some(12345),
+            size: Some(1024),
+            hash: Some("abc123".to_string()),
+            truncated: true,
+        };
+        let item = ResultItem::file("test.rs").with_meta(meta);
+        assert_eq!(item.meta.mtime_ms, Some(12345));
+        assert_eq!(item.meta.size, Some(1024));
+        assert!(item.meta.truncated);
+    }
+
+    #[test]
+    fn test_result_item_with_confidence() {
+        let item = ResultItem::file("test.rs").with_confidence(Confidence::Low);
+        assert_eq!(item.confidence, Confidence::Low);
+    }
+
+    #[test]
+    fn test_result_item_with_source_mode() {
+        let item = ResultItem::file("test.rs").with_source_mode(SourceMode::AstGrep);
+        assert_eq!(item.source_mode, SourceMode::AstGrep);
+    }
+
+    #[test]
+    fn test_result_item_with_error() {
+        let item =
+            ResultItem::file("test.rs").with_error(MiseError::new("WARN", "Warning message"));
+        assert_eq!(item.errors.len(), 1);
+    }
+
+    #[test]
+    fn test_range_lines() {
+        let range = Range::lines(10, 20);
+        if let Range::Line(r) = range {
+            assert_eq!(r.start, 10);
+            assert_eq!(r.end, 20);
+        } else {
+            panic!("Expected Line range");
+        }
+    }
+
+    #[test]
+    fn test_range_bytes() {
+        let range = Range::bytes(100, 200);
+        if let Range::Byte(r) = range {
+            assert_eq!(r.start, 100);
+            assert_eq!(r.end, 200);
+        } else {
+            panic!("Expected Byte range");
+        }
+    }
+
+    #[test]
+    fn test_result_set_new() {
+        let set = ResultSet::new();
+        assert!(set.is_empty());
+        assert_eq!(set.len(), 0);
+    }
+
+    #[test]
+    fn test_result_set_push() {
+        let mut set = ResultSet::new();
+        set.push(ResultItem::file("a.rs"));
+        assert_eq!(set.len(), 1);
+        assert!(!set.is_empty());
+    }
+
+    #[test]
+    fn test_result_set_extend() {
+        let mut set = ResultSet::new();
+        set.extend(vec![ResultItem::file("a.rs"), ResultItem::file("b.rs")]);
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn test_result_set_into_iter() {
+        let mut set = ResultSet::new();
+        set.push(ResultItem::file("a.rs"));
+        set.push(ResultItem::file("b.rs"));
+
+        let items: Vec<_> = set.into_iter().collect();
+        assert_eq!(items.len(), 2);
+    }
+
+    #[test]
+    fn test_result_set_from_iter() {
+        let items = vec![ResultItem::file("a.rs"), ResultItem::file("b.rs")];
+        let set: ResultSet = items.into_iter().collect();
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn test_result_set_sort_by_range() {
+        let mut set = ResultSet::new();
+        set.push(ResultItem::match_result(
+            "test.rs",
+            Range::lines(20, 30),
+            "b",
+        ));
+        set.push(ResultItem::match_result(
+            "test.rs",
+            Range::lines(10, 15),
+            "a",
+        ));
+        set.sort();
+
+        if let Some(Range::Line(r)) = &set.items[0].range {
+            assert_eq!(r.start, 10);
+        }
+        if let Some(Range::Line(r)) = &set.items[1].range {
+            assert_eq!(r.start, 20);
+        }
+    }
+
+    #[test]
+    fn test_result_set_sort_with_none_paths() {
+        let mut set = ResultSet::new();
+        set.push(ResultItem::error(MiseError::new("ERR", "error"))); // path is None
+        set.push(ResultItem::file("a.rs"));
+        set.sort();
+
+        // Items with path should come before items without
+        assert!(set.items[0].path.is_some());
+    }
+
+    #[test]
+    fn test_result_set_sort_byte_ranges() {
+        let mut set = ResultSet::new();
+        let mut item1 = ResultItem::file("test.rs");
+        item1.range = Some(Range::bytes(200, 300));
+        let mut item2 = ResultItem::file("test.rs");
+        item2.range = Some(Range::bytes(100, 150));
+        set.push(item1);
+        set.push(item2);
+        set.sort();
+
+        if let Some(Range::Byte(r)) = &set.items[0].range {
+            assert_eq!(r.start, 100);
+        }
+    }
+
+    #[test]
+    fn test_meta_default() {
+        let meta = Meta::default();
+        assert!(meta.mtime_ms.is_none());
+        assert!(meta.size.is_none());
+        assert!(meta.hash.is_none());
+        assert!(!meta.truncated);
+    }
+
+    #[test]
+    fn test_mise_error_new() {
+        let err = MiseError::new("CODE", "message");
+        assert_eq!(err.code, "CODE");
+        assert_eq!(err.message, "message");
+    }
+
+    #[test]
+    fn test_mise_error_with_string() {
+        let err = MiseError::new(String::from("CODE"), String::from("message"));
+        assert_eq!(err.code, "CODE");
+    }
+
+    #[test]
+    fn test_kind_serialization() {
+        let item = ResultItem::file("test.rs");
+        let json = serde_json::to_string(&item).unwrap();
+        assert!(json.contains("\"kind\":\"file\""));
+    }
+
+    #[test]
+    fn test_confidence_serialization() {
+        let item = ResultItem::file("test.rs").with_confidence(Confidence::Medium);
+        let json = serde_json::to_string(&item).unwrap();
+        assert!(json.contains("\"confidence\":\"medium\""));
+    }
+
+    #[test]
+    fn test_source_mode_serialization() {
+        let item = ResultItem::file("test.rs").with_source_mode(SourceMode::Mixed);
+        let json = serde_json::to_string(&item).unwrap();
+        assert!(json.contains("\"source_mode\":\"mixed\""));
+    }
+
+    #[test]
+    fn test_result_item_deserialization() {
+        let json = r#"{"kind":"file","path":"test.rs","confidence":"high","source_mode":"scan","meta":{"truncated":false}}"#;
+        let item: ResultItem = serde_json::from_str(json).unwrap();
+        assert_eq!(item.kind, Kind::File);
+        assert_eq!(item.path, Some("test.rs".to_string()));
+    }
+
+    #[test]
+    fn test_result_set_default() {
+        let set: ResultSet = Default::default();
+        assert!(set.is_empty());
+    }
+
+    #[test]
+    fn test_result_set_sort_byte_range() {
+        let mut set = ResultSet::new();
+
+        // Create items with byte ranges
+        let mut item1 = ResultItem::file("file.rs");
+        item1.range = Some(Range::bytes(200, 300));
+
+        let mut item2 = ResultItem::file("file.rs");
+        item2.range = Some(Range::bytes(100, 150));
+
+        set.push(item1);
+        set.push(item2);
+        set.sort();
+
+        // Should be sorted by byte range start
+        if let Some(Range::Byte(r)) = &set.items[0].range {
+            assert_eq!(r.start, 100);
+        }
+        if let Some(Range::Byte(r)) = &set.items[1].range {
+            assert_eq!(r.start, 200);
+        }
+    }
+
+    #[test]
+    fn test_result_set_sort_with_some_none_ranges() {
+        let mut set = ResultSet::new();
+
+        // Item without range
+        let item_none = ResultItem::file("file.rs");
+
+        // Item with range
+        let mut item_some = ResultItem::file("file.rs");
+        item_some.range = Some(Range::lines(10, 20));
+
+        set.push(item_none.clone());
+        set.push(item_some.clone());
+        set.sort();
+
+        // Item with range should come before item without range
+        assert!(set.items[0].range.is_some());
+        assert!(set.items[1].range.is_none());
+    }
+
+    #[test]
+    fn test_result_set_sort_none_some_ranges() {
+        let mut set = ResultSet::new();
+
+        // Item with range
+        let mut item_some = ResultItem::file("file.rs");
+        item_some.range = Some(Range::lines(10, 20));
+
+        // Item without range
+        let item_none = ResultItem::file("file.rs");
+
+        // Add in reverse order
+        set.push(item_some);
+        set.push(item_none);
+        set.sort();
+
+        // Item with range should come first
+        assert!(set.items[0].range.is_some());
+    }
+
+    #[test]
+    fn test_result_set_sort_both_none_ranges() {
+        let mut set = ResultSet::new();
+
+        let item1 = ResultItem::file("a.rs");
+        let item2 = ResultItem::file("a.rs");
+
+        set.push(item1);
+        set.push(item2);
+        set.sort();
+
+        // Both should remain (both are "equal" in sort order)
+        assert_eq!(set.items.len(), 2);
+    }
+
+    #[test]
+    fn test_result_set_sort_path_comparison() {
+        let mut set = ResultSet::new();
+
+        // Item without path
+        let mut item_none = ResultItem {
+            kind: Kind::File,
+            path: None,
+            range: None,
+            excerpt: None,
+            confidence: Confidence::High,
+            source_mode: SourceMode::Scan,
+            meta: Meta::default(),
+            errors: vec![],
+        };
+
+        // Item with path
+        let item_some = ResultItem::file("test.rs");
+
+        set.push(item_none);
+        set.push(item_some);
+        set.sort();
+
+        // Item with path should come before item without path
+        assert!(set.items[0].path.is_some());
+        assert!(set.items[1].path.is_none());
+    }
 }

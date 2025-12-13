@@ -747,3 +747,196 @@ fn pack_empty_selection_returns_empty() {
 
     assert!(items.is_empty());
 }
+
+// ================== Stats Command Tests ==================
+
+#[test]
+fn stats_returns_summary_output() {
+    let temp = tempdir().unwrap();
+
+    // Create some test files
+    write_file(
+        &temp.path().join("doc.md"),
+        "# Hello World\n\nThis is a test document.\n",
+    );
+    write_file(&temp.path().join("readme.txt"), "简单的中文测试内容。\n");
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    cmd.arg("--root").arg(temp.path()).arg("flow").arg("stats");
+
+    let assert = cmd.assert().success();
+    let s = String::from_utf8_lossy(&assert.get_output().stdout);
+
+    // Should contain summary statistics
+    assert!(s.contains("Project Statistics") || s.contains("Files:"));
+    assert!(s.contains("Lines") || s.contains("Characters"));
+}
+
+#[test]
+fn stats_json_format_works() {
+    let temp = tempdir().unwrap();
+
+    write_file(&temp.path().join("test.md"), "Test content\n");
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("flow")
+        .arg("stats")
+        .arg("--stats-format")
+        .arg("json");
+
+    let assert = cmd.assert().success();
+    let stdout = &assert.get_output().stdout;
+
+    // Should be valid JSON
+    let parsed: serde_json::Value = serde_json::from_slice(stdout).expect("valid JSON");
+    assert!(parsed.get("total_files").is_some());
+    assert!(parsed.get("total_chars").is_some());
+}
+
+#[test]
+fn stats_table_format_works() {
+    let temp = tempdir().unwrap();
+
+    write_file(&temp.path().join("test.md"), "Test content for table\n");
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("flow")
+        .arg("stats")
+        .arg("--stats-format")
+        .arg("table");
+
+    let assert = cmd.assert().success();
+    let s = String::from_utf8_lossy(&assert.get_output().stdout);
+
+    // Table format should have headers
+    assert!(s.contains("File") || s.contains("|"));
+}
+
+// ================== Outline Command Tests ==================
+
+#[test]
+fn outline_returns_markdown_output() {
+    let temp = tempdir().unwrap();
+
+    // Create file with anchors
+    write_file(
+        &temp.path().join("doc.md"),
+        r#"# Document
+
+<!--Q:begin id=intro tags=chapter-->
+Introduction section.
+<!--Q:end id=intro-->
+
+Some content here.
+"#,
+    );
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("flow")
+        .arg("outline");
+
+    let assert = cmd.assert().success();
+    let s = String::from_utf8_lossy(&assert.get_output().stdout);
+
+    // Should contain outline header and anchor info
+    assert!(s.contains("Outline") || s.contains("intro"));
+}
+
+#[test]
+fn outline_tree_format_works() {
+    let temp = tempdir().unwrap();
+
+    write_file(
+        &temp.path().join("doc.md"),
+        r#"<!--Q:begin id=section tags=doc-->
+Content
+<!--Q:end id=section-->
+"#,
+    );
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("flow")
+        .arg("outline")
+        .arg("--outline-format")
+        .arg("tree");
+
+    let assert = cmd.assert().success();
+    let s = String::from_utf8_lossy(&assert.get_output().stdout);
+
+    // Tree format should show structure
+    assert!(s.contains("section") || s.contains("doc.md"));
+}
+
+#[test]
+fn outline_json_format_works() {
+    let temp = tempdir().unwrap();
+
+    write_file(
+        &temp.path().join("doc.md"),
+        r#"<!--Q:begin id=test tags=a-->
+Test
+<!--Q:end id=test-->
+"#,
+    );
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("flow")
+        .arg("outline")
+        .arg("--outline-format")
+        .arg("json");
+
+    let assert = cmd.assert().success();
+    let stdout = &assert.get_output().stdout;
+
+    // Should be valid JSON
+    let parsed: serde_json::Value = serde_json::from_slice(stdout).expect("valid JSON");
+    assert!(parsed.get("total_chars").is_some());
+    assert!(parsed.get("items").is_some());
+}
+
+#[test]
+fn outline_tag_filter_works() {
+    let temp = tempdir().unwrap();
+
+    write_file(
+        &temp.path().join("doc.md"),
+        r#"<!--Q:begin id=ch1 tags=chapter-->
+Chapter 1
+<!--Q:end id=ch1-->
+
+<!--Q:begin id=note tags=note-->
+A note
+<!--Q:end id=note-->
+"#,
+    );
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("flow")
+        .arg("outline")
+        .arg("--tag")
+        .arg("chapter")
+        .arg("--outline-format")
+        .arg("json");
+
+    let assert = cmd.assert().success();
+    let stdout = &assert.get_output().stdout;
+
+    let parsed: serde_json::Value = serde_json::from_slice(stdout).expect("valid JSON");
+    let items = parsed.get("items").unwrap().as_array().unwrap();
+
+    // Should only include chapter-tagged anchor
+    assert_eq!(items.len(), 1);
+    assert!(items[0]["id"].as_str().unwrap().contains("ch1"));
+}

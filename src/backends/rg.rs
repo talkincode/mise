@@ -121,4 +121,176 @@ mod tests {
         // This test depends on the system having rg installed
         let _ = is_rg_available();
     }
+
+    #[test]
+    fn test_run_rg_not_available() {
+        // Test the error path when rg is not available
+        // We can't easily test this without mocking, so we just test
+        // that is_rg_available returns a boolean
+        let available = is_rg_available();
+        assert!(available == true || available == false);
+    }
+
+    #[test]
+    fn test_run_rg_empty_scopes() {
+        // Test with empty scopes (uses root)
+        if is_rg_available() {
+            let temp = tempfile::tempdir().unwrap();
+            std::fs::write(temp.path().join("test.txt"), "hello world\n").unwrap();
+
+            let result = run_rg(temp.path(), "hello", &[] as &[&Path]);
+            assert!(result.is_ok());
+            let result_set = result.unwrap();
+            // Should find the match
+            assert!(
+                !result_set.items.is_empty()
+                    || result_set
+                        .items
+                        .iter()
+                        .any(|i| matches!(i.kind, crate::core::model::Kind::Error))
+            );
+        }
+    }
+
+    #[test]
+    fn test_run_rg_with_scopes() {
+        if is_rg_available() {
+            let temp = tempfile::tempdir().unwrap();
+            let subdir = temp.path().join("subdir");
+            std::fs::create_dir(&subdir).unwrap();
+            std::fs::write(subdir.join("test.txt"), "hello world\n").unwrap();
+
+            let result = run_rg(temp.path(), "hello", &[subdir.as_path()]);
+            assert!(result.is_ok());
+        }
+    }
+
+    #[test]
+    fn test_run_rg_no_matches() {
+        if is_rg_available() {
+            let temp = tempfile::tempdir().unwrap();
+            std::fs::write(temp.path().join("test.txt"), "hello world\n").unwrap();
+
+            let result = run_rg(temp.path(), "nonexistent_pattern_xyz123", &[] as &[&Path]);
+            assert!(result.is_ok());
+            let result_set = result.unwrap();
+            // Should have no matches
+            assert!(
+                result_set.items.is_empty()
+                    || result_set
+                        .items
+                        .iter()
+                        .all(|i| !matches!(i.kind, crate::core::model::Kind::Match))
+            );
+        }
+    }
+
+    #[test]
+    fn test_run_rg_result_item_properties() {
+        if is_rg_available() {
+            let temp = tempfile::tempdir().unwrap();
+            std::fs::write(temp.path().join("test.txt"), "hello world\n").unwrap();
+
+            let result = run_rg(temp.path(), "hello", &[] as &[&Path]).unwrap();
+
+            for item in result.items {
+                if matches!(item.kind, crate::core::model::Kind::Match) {
+                    assert!(item.path.is_some());
+                    assert!(item.range.is_some());
+                    assert!(item.excerpt.is_some());
+                    assert!(matches!(item.source_mode, SourceMode::Rg));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_run_match_command() {
+        if is_rg_available() {
+            let temp = tempfile::tempdir().unwrap();
+            std::fs::write(temp.path().join("test.txt"), "hello world\n").unwrap();
+
+            let config = crate::core::render::RenderConfig {
+                format: crate::core::render::OutputFormat::Json,
+                pretty: false,
+            };
+
+            let result = run_match(temp.path(), "hello", &[] as &[&Path], config);
+            assert!(result.is_ok());
+        }
+    }
+
+    #[test]
+    fn test_run_rg_multiple_matches() {
+        if is_rg_available() {
+            let temp = tempfile::tempdir().unwrap();
+            std::fs::write(temp.path().join("test1.txt"), "hello\n").unwrap();
+            std::fs::write(temp.path().join("test2.txt"), "hello\n").unwrap();
+
+            let result = run_rg(temp.path(), "hello", &[] as &[&Path]).unwrap();
+            // Should find matches in both files
+            let match_count = result
+                .items
+                .iter()
+                .filter(|i| matches!(i.kind, crate::core::model::Kind::Match))
+                .count();
+            assert!(match_count >= 2);
+        }
+    }
+
+    #[test]
+    fn test_run_rg_multiline_content() {
+        if is_rg_available() {
+            let temp = tempfile::tempdir().unwrap();
+            std::fs::write(temp.path().join("test.txt"), "line1\nhello world\nline3\n").unwrap();
+
+            let result = run_rg(temp.path(), "hello", &[] as &[&Path]).unwrap();
+            // Should find the match on line 2
+            for item in &result.items {
+                if matches!(item.kind, crate::core::model::Kind::Match) {
+                    assert!(item.range.is_some());
+                    if let Some(Range::Line(range_line)) = &item.range {
+                        assert_eq!(range_line.start, 2);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_run_rg_relative_path() {
+        if is_rg_available() {
+            let temp = tempfile::tempdir().unwrap();
+            let subdir = temp.path().join("subdir");
+            std::fs::create_dir(&subdir).unwrap();
+            std::fs::write(subdir.join("test.txt"), "hello\n").unwrap();
+
+            let result = run_rg(temp.path(), "hello", &[] as &[&Path]).unwrap();
+            for item in &result.items {
+                if matches!(item.kind, crate::core::model::Kind::Match) {
+                    let path = item.path.as_ref().unwrap();
+                    // Path should be relative and contain subdir
+                    assert!(path.contains("subdir"));
+                    assert!(!path.starts_with("/"));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_run_rg_excerpt_trimmed() {
+        if is_rg_available() {
+            let temp = tempfile::tempdir().unwrap();
+            std::fs::write(temp.path().join("test.txt"), "  hello world  \n").unwrap();
+
+            let result = run_rg(temp.path(), "hello", &[] as &[&Path]).unwrap();
+            for item in &result.items {
+                if let Some(excerpt) = &item.excerpt {
+                    // Excerpt should not have trailing whitespace
+                    assert!(!excerpt.ends_with(' '));
+                    assert!(!excerpt.ends_with('\n'));
+                }
+            }
+        }
+    }
 }

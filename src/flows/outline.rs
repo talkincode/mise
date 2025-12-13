@@ -559,4 +559,426 @@ mod tests {
         let cjk = "你好世界";
         assert!(estimate_tokens(cjk) > 0);
     }
+
+    #[test]
+    fn test_outline_format_invalid() {
+        assert!("invalid".parse::<OutlineFormat>().is_err());
+    }
+
+    #[test]
+    fn test_extract_preview_skips_comments() {
+        let content = "<!--Q:begin-->\nActual content";
+        let preview = extract_preview(content, 20).unwrap();
+        assert_eq!(preview, "Actual content");
+    }
+
+    #[test]
+    fn test_extract_preview_cjk() {
+        let content = "这是一个很长的中文句子需要被截断显示";
+        let preview = extract_preview(content, 10).unwrap();
+        assert!(preview.ends_with("..."));
+        assert!(preview.chars().count() <= 14); // 10 + "..."
+    }
+
+    #[test]
+    fn test_count_words_empty() {
+        assert_eq!(count_words(""), 0);
+    }
+
+    #[test]
+    fn test_count_words_cjk_only() {
+        // CJK doesn't count as words (no ASCII alphanumeric)
+        assert_eq!(count_words("你好世界"), 0);
+    }
+
+    #[test]
+    fn test_count_cjk_chars_mixed() {
+        assert_eq!(count_cjk_chars("hello世界test"), 2);
+    }
+
+    #[test]
+    fn test_is_cjk_char_fullwidth() {
+        // Fullwidth forms
+        assert!(is_cjk_char('Ａ')); // U+FF21 fullwidth A
+        assert!(is_cjk_char('１')); // U+FF11 fullwidth 1
+    }
+
+    #[test]
+    fn test_estimate_tokens_empty() {
+        assert_eq!(estimate_tokens(""), 0);
+    }
+
+    #[test]
+    fn test_estimate_tokens_code_symbols() {
+        let code = "fn() { }";
+        let tokens = estimate_tokens(code);
+        assert!(tokens > 0);
+    }
+
+    #[test]
+    fn test_outline_item_creation() {
+        let item = OutlineItem {
+            id: "test.id".to_string(),
+            path: "test.md".to_string(),
+            tags: vec!["tag1".to_string()],
+            start_line: 1,
+            end_line: 10,
+            chars: 100,
+            words: 20,
+            cjk_chars: 5,
+            tokens: 30,
+            preview: Some("Preview".to_string()),
+            level: 0,
+        };
+        assert_eq!(item.id, "test.id");
+        assert_eq!(item.level, 0);
+    }
+
+    #[test]
+    fn test_project_outline_creation() {
+        let outline = ProjectOutline {
+            total_chars: 500,
+            total_words: 100,
+            total_cjk_chars: 50,
+            total_tokens: 150,
+            items: vec![],
+            by_tag: std::collections::HashMap::new(),
+        };
+        assert_eq!(outline.total_chars, 500);
+        assert!(outline.items.is_empty());
+    }
+
+    #[test]
+    fn test_is_code_symbol() {
+        // Brackets and parentheses
+        assert!(is_code_symbol('('));
+        assert!(is_code_symbol(')'));
+        assert!(is_code_symbol('['));
+        assert!(is_code_symbol(']'));
+        assert!(is_code_symbol('{'));
+        assert!(is_code_symbol('}'));
+        assert!(is_code_symbol('<'));
+        assert!(is_code_symbol('>'));
+
+        // Operators
+        assert!(is_code_symbol('='));
+        assert!(is_code_symbol('+'));
+        assert!(is_code_symbol('-'));
+        assert!(is_code_symbol('*'));
+        assert!(is_code_symbol('/'));
+        assert!(is_code_symbol('%'));
+        assert!(is_code_symbol('&'));
+        assert!(is_code_symbol('|'));
+        assert!(is_code_symbol('^'));
+        assert!(is_code_symbol('!'));
+        assert!(is_code_symbol('~'));
+        assert!(is_code_symbol('?'));
+
+        // Punctuation
+        assert!(is_code_symbol(':'));
+        assert!(is_code_symbol(';'));
+        assert!(is_code_symbol(','));
+        assert!(is_code_symbol('.'));
+
+        // Special chars
+        assert!(is_code_symbol('@'));
+        assert!(is_code_symbol('#'));
+        assert!(is_code_symbol('$'));
+        assert!(is_code_symbol('\\'));
+        assert!(is_code_symbol('"'));
+        assert!(is_code_symbol('\''));
+        assert!(is_code_symbol('`'));
+
+        // Non-code symbols
+        assert!(!is_code_symbol('a'));
+        assert!(!is_code_symbol('A'));
+        assert!(!is_code_symbol('0'));
+        assert!(!is_code_symbol(' '));
+    }
+
+    #[test]
+    fn test_estimate_tokens_whitespace() {
+        let text = "   \t\n   ";
+        let tokens = estimate_tokens(text);
+        assert!(tokens > 0);
+    }
+
+    #[test]
+    fn test_estimate_tokens_mixed_content() {
+        let text = "fn test() { let x = 你好; }";
+        let tokens = estimate_tokens(text);
+        assert!(tokens > 0);
+    }
+
+    #[test]
+    fn test_estimate_tokens_other_unicode() {
+        let text = "Hello мир świat"; // Russian and Polish
+        let tokens = estimate_tokens(text);
+        assert!(tokens > 0);
+    }
+
+    #[test]
+    fn test_count_words_with_numbers() {
+        assert_eq!(count_words("test123 hello456"), 2);
+    }
+
+    #[test]
+    fn test_extract_preview_all_comments() {
+        let content = "<!--comment1-->\n<!--comment2-->";
+        assert_eq!(extract_preview(content, 20), None);
+    }
+
+    #[test]
+    fn test_extract_preview_whitespace_only() {
+        let content = "   \n\t\n   ";
+        assert_eq!(extract_preview(content, 20), None);
+    }
+
+    #[test]
+    fn test_outline_format_default() {
+        let format = OutlineFormat::default();
+        assert_eq!(format, OutlineFormat::Markdown);
+    }
+
+    #[test]
+    fn test_outline_format_all_variants() {
+        assert_eq!(
+            "md".parse::<OutlineFormat>().unwrap(),
+            OutlineFormat::Markdown
+        );
+        assert_eq!(
+            "standard".parse::<OutlineFormat>().unwrap(),
+            OutlineFormat::Standard
+        );
+        assert_eq!(
+            "default".parse::<OutlineFormat>().unwrap(),
+            OutlineFormat::Standard
+        );
+    }
+
+    #[test]
+    fn test_render_markdown_empty() {
+        let outline = ProjectOutline {
+            items: vec![],
+            total_chars: 0,
+            total_words: 0,
+            total_cjk_chars: 0,
+            total_tokens: 0,
+            by_tag: HashMap::new(),
+        };
+        let md = render_markdown(&outline);
+        assert!(md.contains("Document Outline"));
+        assert!(md.contains("0 anchors"));
+    }
+
+    #[test]
+    fn test_render_markdown_with_items() {
+        let mut by_tag = HashMap::new();
+        by_tag.insert("test".to_string(), vec!["item1".to_string()]);
+
+        let outline = ProjectOutline {
+            items: vec![OutlineItem {
+                id: "item1".to_string(),
+                path: "test.md".to_string(),
+                tags: vec!["test".to_string()],
+                start_line: 1,
+                end_line: 10,
+                chars: 100,
+                words: 20,
+                cjk_chars: 0,
+                tokens: 25,
+                preview: Some("Preview text".to_string()),
+                level: 0,
+            }],
+            total_chars: 100,
+            total_words: 20,
+            total_cjk_chars: 0,
+            total_tokens: 25,
+            by_tag,
+        };
+        let md = render_markdown(&outline);
+        assert!(md.contains("📄 test.md"));
+        assert!(md.contains("[item1]"));
+        assert!(md.contains("Preview text"));
+        assert!(md.contains("By Tag"));
+    }
+
+    #[test]
+    fn test_render_tree_empty() {
+        let outline = ProjectOutline {
+            items: vec![],
+            total_chars: 0,
+            total_words: 0,
+            total_cjk_chars: 0,
+            total_tokens: 0,
+            by_tag: HashMap::new(),
+        };
+        let tree = render_tree(&outline);
+        assert!(tree.contains("Document Outline"));
+        assert!(tree.contains("0 anchors"));
+    }
+
+    #[test]
+    fn test_render_tree_with_items() {
+        let outline = ProjectOutline {
+            items: vec![
+                OutlineItem {
+                    id: "item1".to_string(),
+                    path: "test.md".to_string(),
+                    tags: vec![],
+                    start_line: 1,
+                    end_line: 10,
+                    chars: 100,
+                    words: 20,
+                    cjk_chars: 0,
+                    tokens: 25,
+                    preview: None,
+                    level: 0,
+                },
+                OutlineItem {
+                    id: "item2".to_string(),
+                    path: "test.md".to_string(),
+                    tags: vec![],
+                    start_line: 15,
+                    end_line: 25,
+                    chars: 50,
+                    words: 10,
+                    cjk_chars: 0,
+                    tokens: 12,
+                    preview: None,
+                    level: 0,
+                },
+            ],
+            total_chars: 150,
+            total_words: 30,
+            total_cjk_chars: 0,
+            total_tokens: 37,
+            by_tag: HashMap::new(),
+        };
+        let tree = render_tree(&outline);
+        assert!(tree.contains("📄 test.md"));
+        assert!(tree.contains("[item1]"));
+        assert!(tree.contains("[item2]"));
+        assert!(tree.contains("├──") || tree.contains("└──"));
+    }
+
+    #[test]
+    fn test_outline_to_result_set() {
+        let outline = ProjectOutline {
+            items: vec![OutlineItem {
+                id: "test.anchor".to_string(),
+                path: "test.md".to_string(),
+                tags: vec!["tag1".to_string()],
+                start_line: 5,
+                end_line: 15,
+                chars: 200,
+                words: 40,
+                cjk_chars: 10,
+                tokens: 50,
+                preview: Some("Test preview".to_string()),
+                level: 1,
+            }],
+            total_chars: 200,
+            total_words: 40,
+            total_cjk_chars: 10,
+            total_tokens: 50,
+            by_tag: HashMap::new(),
+        };
+
+        let result_set = outline_to_result_set(&outline);
+        // Should have summary item + 1 anchor item
+        assert_eq!(result_set.items.len(), 2);
+
+        // Check summary item
+        let summary = &result_set.items[0];
+        assert_eq!(summary.kind, Kind::Flow);
+        assert!(summary.excerpt.as_ref().unwrap().contains("Document Outline"));
+
+        // Check anchor item
+        let anchor = &result_set.items[1];
+        assert_eq!(anchor.path, Some("test.md".to_string()));
+        assert!(anchor.excerpt.as_ref().unwrap().contains("test.anchor"));
+    }
+
+    #[test]
+    fn test_outline_item_with_nested_level() {
+        let item = OutlineItem {
+            id: "parent.child.grandchild".to_string(),
+            path: "test.md".to_string(),
+            tags: vec![],
+            start_line: 1,
+            end_line: 10,
+            chars: 100,
+            words: 20,
+            cjk_chars: 0,
+            tokens: 25,
+            preview: None,
+            level: 2, // Nested 2 levels
+        };
+        assert_eq!(item.level, 2);
+    }
+
+    #[test]
+    fn test_is_cjk_char_extended() {
+        // CJK Extension A
+        assert!(is_cjk_char('\u{3400}')); // U+3400
+        assert!(is_cjk_char('\u{4DB5}')); // U+4DB5
+
+        // CJK Symbols
+        assert!(is_cjk_char('〇')); // CJK zero
+
+        // Hiragana
+        assert!(is_cjk_char('あ'));
+        assert!(is_cjk_char('ん'));
+
+        // Katakana
+        assert!(is_cjk_char('ア'));
+        assert!(is_cjk_char('ン'));
+
+        // Hangul
+        assert!(is_cjk_char('가'));
+        assert!(is_cjk_char('힣'));
+    }
+
+    #[test]
+    fn test_render_markdown_nested_items() {
+        let outline = ProjectOutline {
+            items: vec![
+                OutlineItem {
+                    id: "parent".to_string(),
+                    path: "test.md".to_string(),
+                    tags: vec![],
+                    start_line: 1,
+                    end_line: 20,
+                    chars: 200,
+                    words: 40,
+                    cjk_chars: 0,
+                    tokens: 50,
+                    preview: None,
+                    level: 0,
+                },
+                OutlineItem {
+                    id: "child".to_string(),
+                    path: "test.md".to_string(),
+                    tags: vec![],
+                    start_line: 5,
+                    end_line: 15,
+                    chars: 100,
+                    words: 20,
+                    cjk_chars: 0,
+                    tokens: 25,
+                    preview: None,
+                    level: 1,
+                },
+            ],
+            total_chars: 300,
+            total_words: 60,
+            total_cjk_chars: 0,
+            total_tokens: 75,
+            by_tag: HashMap::new(),
+        };
+        let md = render_markdown(&outline);
+        assert!(md.contains("[parent]"));
+        assert!(md.contains("[child]"));
+    }
 }

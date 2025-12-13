@@ -178,4 +178,108 @@ mod tests {
         assert!(result.meta.truncated);
         assert!(result.excerpt.unwrap().len() <= 20);
     }
+
+    #[test]
+    fn test_parse_line_range_non_numeric() {
+        assert!(parse_line_range("abc:def").is_err());
+        assert!(parse_line_range("1:abc").is_err());
+        assert!(parse_line_range("abc:10").is_err());
+    }
+
+    #[test]
+    fn test_parse_line_range_too_many_parts() {
+        assert!(parse_line_range("1:2:3").is_err());
+    }
+
+    #[test]
+    fn test_parse_line_range_empty() {
+        assert!(parse_line_range("").is_err());
+        assert!(parse_line_range(":").is_err());
+    }
+
+    #[test]
+    fn test_extract_lines_file_not_found() {
+        let temp = tempdir().unwrap();
+        let result = extract_lines(temp.path(), Path::new("nonexistent.txt"), 1, 10, 65536);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_extract_lines_start_beyond_eof() {
+        let temp = tempdir().unwrap();
+        let file_path = temp.path().join("short.txt");
+
+        let mut file = File::create(&file_path).unwrap();
+        writeln!(file, "line 1").unwrap();
+        writeln!(file, "line 2").unwrap();
+
+        let result = extract_lines(temp.path(), &file_path, 100, 200, 65536);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_extract_lines_single_line() {
+        let temp = tempdir().unwrap();
+        let file_path = temp.path().join("test.txt");
+
+        let mut file = File::create(&file_path).unwrap();
+        writeln!(file, "line 1").unwrap();
+        writeln!(file, "line 2").unwrap();
+        writeln!(file, "line 3").unwrap();
+
+        let result = extract_lines(temp.path(), &file_path, 2, 2, 65536).unwrap();
+        assert_eq!(result.excerpt, Some("line 2".to_string()));
+    }
+
+    #[test]
+    fn test_extract_lines_with_absolute_path() {
+        let temp = tempdir().unwrap();
+        let file_path = temp.path().join("test.txt");
+        let abs_path = file_path.canonicalize().unwrap_or_else(|_| file_path.clone());
+
+        let mut file = File::create(&file_path).unwrap();
+        writeln!(file, "content").unwrap();
+
+        // Use absolute path directly
+        let result = extract_lines(temp.path(), &abs_path, 1, 1, 65536);
+        // Should still work with absolute path
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_extract_lines_range_info() {
+        let temp = tempdir().unwrap();
+        let file_path = temp.path().join("test.txt");
+
+        let mut file = File::create(&file_path).unwrap();
+        writeln!(file, "line 1").unwrap();
+        writeln!(file, "line 2").unwrap();
+        writeln!(file, "line 3").unwrap();
+        writeln!(file, "line 4").unwrap();
+
+        let result = extract_lines(temp.path(), &file_path, 2, 3, 65536).unwrap();
+        let range = result.range.unwrap();
+        match range {
+            Range::Line(line_range) => {
+                assert_eq!(line_range.start, 2);
+                assert_eq!(line_range.end, 3);
+            }
+            _ => panic!("Expected Line range"),
+        }
+    }
+
+    #[test]
+    fn test_extract_empty_lines() {
+        let temp = tempdir().unwrap();
+        let file_path = temp.path().join("test.txt");
+
+        let mut file = File::create(&file_path).unwrap();
+        writeln!(file, "").unwrap(); // empty line
+        writeln!(file, "content").unwrap();
+        writeln!(file, "").unwrap(); // empty line
+
+        let result = extract_lines(temp.path(), &file_path, 1, 3, 65536).unwrap();
+        let content = result.excerpt.unwrap();
+        assert!(content.contains("content"));
+    }
 }

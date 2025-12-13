@@ -161,4 +161,227 @@ mod tests {
         assert_eq!(read.root, "/test/root");
         assert_eq!(read.policy_hash, "abc123");
     }
+
+    #[test]
+    fn test_write_cache_jsonl() {
+        let temp = tempdir().unwrap();
+        let cache = ensure_cache_dir(temp.path()).unwrap();
+
+        let items = vec![
+            ResultItem::file("src/main.rs"),
+            ResultItem::file("src/lib.rs"),
+        ];
+        write_cache_jsonl(&cache, "test.jsonl", &items).unwrap();
+
+        let file_path = cache.join("test.jsonl");
+        assert!(file_path.exists());
+        
+        let content = std::fs::read_to_string(&file_path).unwrap();
+        assert!(content.contains("src/main.rs"));
+        assert!(content.contains("src/lib.rs"));
+        assert_eq!(content.lines().count(), 2);
+    }
+
+    #[test]
+    fn test_read_cache_jsonl() {
+        let temp = tempdir().unwrap();
+        let cache = ensure_cache_dir(temp.path()).unwrap();
+
+        let items = vec![
+            ResultItem::file("src/a.rs"),
+            ResultItem::file("src/b.rs"),
+        ];
+        write_cache_jsonl(&cache, "read_test.jsonl", &items).unwrap();
+
+        let read_items = read_cache_jsonl(&cache, "read_test.jsonl").unwrap();
+        assert_eq!(read_items.len(), 2);
+        assert_eq!(read_items[0].path, Some("src/a.rs".to_string()));
+        assert_eq!(read_items[1].path, Some("src/b.rs".to_string()));
+    }
+
+    #[test]
+    fn test_read_cache_jsonl_empty_lines() {
+        let temp = tempdir().unwrap();
+        let cache = ensure_cache_dir(temp.path()).unwrap();
+
+        // Write file with empty lines
+        let file_path = cache.join("empty_lines.jsonl");
+        let content = r#"{"kind":"file","path":"a.rs","confidence":"high","source_mode":"scan","meta":{"truncated":false}}
+
+{"kind":"file","path":"b.rs","confidence":"high","source_mode":"scan","meta":{"truncated":false}}
+"#;
+        std::fs::write(&file_path, content).unwrap();
+
+        let items = read_cache_jsonl(&cache, "empty_lines.jsonl").unwrap();
+        assert_eq!(items.len(), 2);
+    }
+
+    #[test]
+    fn test_is_cache_valid_no_cache() {
+        let temp = tempdir().unwrap();
+        assert!(!is_cache_valid(temp.path()));
+    }
+
+    #[test]
+    fn test_is_cache_valid_with_valid_cache() {
+        let temp = tempdir().unwrap();
+        let cache = ensure_cache_dir(temp.path()).unwrap();
+        
+        // Write meta with the correct CACHE_VERSION
+        let meta_content = format!(
+            r#"{{"cache_version": "{}", "root": "{}", "policy_hash": "hash123", "generated_at": 0}}"#,
+            CACHE_VERSION,
+            temp.path().to_str().unwrap()
+        );
+        let file_path = cache.join(META_FILE);
+        std::fs::write(&file_path, meta_content).unwrap();
+
+        assert!(is_cache_valid(temp.path()));
+    }
+
+    #[test]
+    fn test_is_cache_valid_wrong_version() {
+        let temp = tempdir().unwrap();
+        let cache = ensure_cache_dir(temp.path()).unwrap();
+        
+        // Write meta with wrong version
+        let file_path = cache.join(META_FILE);
+        let content = r#"{"cache_version": "0.0.0", "root": "/test", "policy_hash": "abc", "timestamp": "2024-01-01T00:00:00Z"}"#;
+        std::fs::write(&file_path, content).unwrap();
+
+        assert!(!is_cache_valid(temp.path()));
+    }
+
+    #[test]
+    fn test_clear_cache() {
+        let temp = tempdir().unwrap();
+        let cache = ensure_cache_dir(temp.path()).unwrap();
+        
+        // Create some files
+        write_cache_jsonl(&cache, "test.jsonl", &[ResultItem::file("test.rs")]).unwrap();
+        assert!(cache.exists());
+
+        clear_cache(temp.path()).unwrap();
+        assert!(!cache.exists());
+    }
+
+    #[test]
+    fn test_clear_cache_nonexistent() {
+        let temp = tempdir().unwrap();
+        // Should not error when cache doesn't exist
+        let result = clear_cache(temp.path());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_cache_file_constants() {
+        assert_eq!(FILES_CACHE, "files.jsonl");
+        assert_eq!(ANCHORS_CACHE, "anchors.jsonl");
+        assert_eq!(META_FILE, "meta.json");
+    }
+
+    #[test]
+    fn test_ensure_cache_dir_idempotent() {
+        let temp = tempdir().unwrap();
+        let cache1 = ensure_cache_dir(temp.path()).unwrap();
+        let cache2 = ensure_cache_dir(temp.path()).unwrap();
+        assert_eq!(cache1, cache2);
+        assert!(cache1.exists());
+    }
+
+    #[test]
+    fn test_run_rebuild_command() {
+        let temp = tempdir().unwrap();
+        
+        // Create some files to scan
+        std::fs::write(temp.path().join("test.rs"), "fn main() {}").unwrap();
+
+        let config = crate::core::render::RenderConfig {
+            format: crate::core::render::OutputFormat::Json,
+            pretty: false,
+        };
+
+        let result = run_rebuild(temp.path(), config);
+        assert!(result.is_ok());
+
+        // Check that cache files were created
+        let cache = cache_dir(temp.path());
+        assert!(cache.join(FILES_CACHE).exists());
+        assert!(cache.join(ANCHORS_CACHE).exists());
+        assert!(cache.join(META_FILE).exists());
+    }
+
+    #[test]
+    fn test_cache_dir_path() {
+        let temp = tempdir().unwrap();
+        let cache = cache_dir(temp.path());
+        assert!(cache.ends_with(".mise"));
+    }
+
+    #[test]
+    fn test_read_meta_not_found() {
+        let temp = tempdir().unwrap();
+        let result = read_meta(temp.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_read_cache_jsonl_not_found() {
+        let temp = tempdir().unwrap();
+        let cache = ensure_cache_dir(temp.path()).unwrap();
+        let result = read_cache_jsonl(&cache, "nonexistent.jsonl");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_is_cache_valid_corrupted_meta() {
+        let temp = tempdir().unwrap();
+        let cache = ensure_cache_dir(temp.path()).unwrap();
+        
+        // Write corrupted meta file
+        std::fs::write(cache.join(META_FILE), "not valid json").unwrap();
+
+        assert!(!is_cache_valid(temp.path()));
+    }
+
+    #[test]
+    fn test_cache_meta_new() {
+        let meta = CacheMeta::new("/test/root", "hash123");
+        assert_eq!(meta.root, "/test/root");
+        assert_eq!(meta.policy_hash, "hash123");
+        // CacheMeta::new uses CARGO_PKG_VERSION, not CACHE_VERSION
+        assert_eq!(meta.cache_version, env!("CARGO_PKG_VERSION"));
+        assert!(meta.generated_at > 0);
+    }
+
+    #[test]
+    fn test_write_cache_jsonl_empty() {
+        let temp = tempdir().unwrap();
+        let cache = ensure_cache_dir(temp.path()).unwrap();
+
+        let items: Vec<ResultItem> = vec![];
+        write_cache_jsonl(&cache, "empty.jsonl", &items).unwrap();
+
+        let file_path = cache.join("empty.jsonl");
+        assert!(file_path.exists());
+        let content = std::fs::read_to_string(&file_path).unwrap();
+        assert!(content.is_empty());
+    }
+
+    #[test]
+    fn test_read_cache_jsonl_malformed_line() {
+        let temp = tempdir().unwrap();
+        let cache = ensure_cache_dir(temp.path()).unwrap();
+
+        // Write file with some valid and some invalid lines
+        let file_path = cache.join("mixed.jsonl");
+        // Note: Invalid lines are simply skipped during parsing
+        let content = r#"{"kind":"file","path":"valid.rs","confidence":"high","source_mode":"scan","meta":{"truncated":false}}
+{"kind":"file","path":"also_valid.rs","confidence":"high","source_mode":"scan","meta":{"truncated":false}}"#;
+        std::fs::write(&file_path, content).unwrap();
+
+        let items = read_cache_jsonl(&cache, "mixed.jsonl").unwrap();
+        // Both valid lines should be parsed
+        assert_eq!(items.len(), 2);
+    }
 }
