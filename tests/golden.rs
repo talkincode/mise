@@ -22,6 +22,11 @@ fn sample_project() -> PathBuf {
     fixtures_dir().join("sample_project")
 }
 
+/// Create a command for running mise binary
+fn mise_cmd() -> Command {
+    Command::cargo_bin("mise").expect("Failed to find mise binary")
+}
+
 /// Parse JSONL output into a vector of JSON values
 fn parse_jsonl(output: &str) -> Vec<Value> {
     output
@@ -55,7 +60,7 @@ mod tests {
 
     #[test]
     fn golden_scan_files_structure() {
-        let mut cmd = Command::cargo_bin("mise").unwrap();
+        let mut cmd = mise_cmd();
         cmd.arg("--root")
             .arg(sample_project())
             .arg("scan")
@@ -97,7 +102,7 @@ mod tests {
 
     #[test]
     fn golden_scan_includes_metadata() {
-        let mut cmd = Command::cargo_bin("mise").unwrap();
+        let mut cmd = mise_cmd();
         cmd.arg("--root")
             .arg(sample_project())
             .arg("scan")
@@ -124,7 +129,7 @@ mod tests {
 
     #[test]
     fn golden_anchor_list_structure() {
-        let mut cmd = Command::cargo_bin("mise").unwrap();
+        let mut cmd = mise_cmd();
         cmd.arg("--root")
             .arg(sample_project())
             .arg("anchor")
@@ -158,7 +163,7 @@ mod tests {
 
     #[test]
     fn golden_anchor_list_paths() {
-        let mut cmd = Command::cargo_bin("mise").unwrap();
+        let mut cmd = mise_cmd();
         cmd.arg("--root")
             .arg(sample_project())
             .arg("anchor")
@@ -190,7 +195,7 @@ mod tests {
 
     #[test]
     fn golden_anchor_get_specific() {
-        let mut cmd = Command::cargo_bin("mise").unwrap();
+        let mut cmd = mise_cmd();
         cmd.arg("--root")
             .arg(sample_project())
             .arg("anchor")
@@ -217,7 +222,7 @@ mod tests {
 
     #[test]
     fn golden_extract_structure() {
-        let mut cmd = Command::cargo_bin("mise").unwrap();
+        let mut cmd = mise_cmd();
         cmd.arg("--root")
             .arg(sample_project())
             .arg("extract")
@@ -250,7 +255,7 @@ mod tests {
 
     #[test]
     fn golden_extract_exact_lines() {
-        let mut cmd = Command::cargo_bin("mise").unwrap();
+        let mut cmd = mise_cmd();
         cmd.arg("--root")
             .arg(sample_project())
             .arg("extract")
@@ -277,8 +282,7 @@ mod tests {
     #[test]
     fn golden_jsonl_vs_json_equivalence() {
         // Get JSONL output
-        let jsonl_output = Command::cargo_bin("mise")
-            .unwrap()
+        let jsonl_output = mise_cmd()
             .arg("--root")
             .arg(sample_project())
             .arg("--format")
@@ -293,8 +297,7 @@ mod tests {
         let jsonl_items = normalize_items(parse_jsonl(&jsonl_stdout));
 
         // Get JSON output
-        let json_output = Command::cargo_bin("mise")
-            .unwrap()
+        let json_output = mise_cmd()
             .arg("--root")
             .arg(sample_project())
             .arg("--format")
@@ -320,7 +323,7 @@ mod tests {
 
     #[test]
     fn golden_markdown_format_structure() {
-        let mut cmd = Command::cargo_bin("mise").unwrap();
+        let mut cmd = mise_cmd();
         cmd.arg("--root")
             .arg(sample_project())
             .arg("--format")
@@ -347,7 +350,7 @@ mod tests {
 
     #[test]
     fn golden_anchor_lint_clean_project() {
-        let mut cmd = Command::cargo_bin("mise").unwrap();
+        let mut cmd = mise_cmd();
         cmd.arg("--root")
             .arg(sample_project())
             .arg("anchor")
@@ -376,7 +379,7 @@ mod tests {
 
     #[test]
     fn golden_range_format_line_based() {
-        let mut cmd = Command::cargo_bin("mise").unwrap();
+        let mut cmd = mise_cmd();
         cmd.arg("--root")
             .arg(sample_project())
             .arg("anchor")
@@ -403,8 +406,7 @@ mod tests {
     #[test]
     fn golden_scan_output_is_deterministic() {
         // Run scan twice and verify identical output
-        let run1 = Command::cargo_bin("mise")
-            .unwrap()
+        let run1 = mise_cmd()
             .arg("--root")
             .arg(sample_project())
             .arg("scan")
@@ -413,8 +415,7 @@ mod tests {
             .output()
             .expect("failed");
 
-        let run2 = Command::cargo_bin("mise")
-            .unwrap()
+        let run2 = mise_cmd()
             .arg("--root")
             .arg(sample_project())
             .arg("scan")
@@ -432,8 +433,7 @@ mod tests {
     #[test]
     fn golden_anchor_hash_stability() {
         // Anchor hashes should be stable for unchanged content
-        let run1 = Command::cargo_bin("mise")
-            .unwrap()
+        let run1 = mise_cmd()
             .arg("--root")
             .arg(sample_project())
             .arg("anchor")
@@ -441,8 +441,7 @@ mod tests {
             .output()
             .expect("failed");
 
-        let run2 = Command::cargo_bin("mise")
-            .unwrap()
+        let run2 = mise_cmd()
             .arg("--root")
             .arg(sample_project())
             .arg("anchor")
@@ -471,7 +470,7 @@ mod tests {
 
     #[test]
     fn golden_extract_invalid_range_error() {
-        let mut cmd = Command::cargo_bin("mise").unwrap();
+        let mut cmd = mise_cmd();
         cmd.arg("--root")
             .arg(sample_project())
             .arg("extract")
@@ -487,7 +486,7 @@ mod tests {
 
     #[test]
     fn golden_anchor_get_missing() {
-        let mut cmd = Command::cargo_bin("mise").unwrap();
+        let mut cmd = mise_cmd();
         cmd.arg("--root")
             .arg(sample_project())
             .arg("anchor")

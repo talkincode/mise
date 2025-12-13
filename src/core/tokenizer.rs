@@ -61,19 +61,6 @@ impl TokenModel {
         }
     }
 
-    /// Get a human-readable description of the model
-    pub fn description(&self) -> &'static str {
-        match self {
-            TokenModel::Cl100k => "cl100k_base (GPT-4/Claude default)",
-            TokenModel::O200k => "o200k_base (GPT-4o native)",
-            TokenModel::Gpt4 => "GPT-4/GPT-4-turbo",
-            TokenModel::Gpt4o => "GPT-4o",
-            TokenModel::Gpt35Turbo => "GPT-3.5-turbo",
-            TokenModel::Claude3 => "Claude 3/3.5 (cl100k approximation)",
-            TokenModel::Heuristic => "Fast heuristic (no BPE)",
-        }
-    }
-
     /// List all available models
     pub fn available_models() -> &'static [&'static str] {
         &[
@@ -143,7 +130,7 @@ pub fn check_tiktoken_model(model: TokenModel) -> (bool, Option<String>) {
         TokenModel::Heuristic => (true, None),
         TokenModel::O200k | TokenModel::Gpt4o => {
             // Check cached status first
-            let mut status = O200K_STATUS.lock().unwrap();
+            let mut status = O200K_STATUS.lock().expect("O200K_STATUS mutex poisoned");
             if let Some(available) = *status {
                 return (
                     available,
@@ -168,7 +155,7 @@ pub fn check_tiktoken_model(model: TokenModel) -> (bool, Option<String>) {
         }
         _ => {
             // cl100k variants
-            let mut status = CL100K_STATUS.lock().unwrap();
+            let mut status = CL100K_STATUS.lock().expect("CL100K_STATUS mutex poisoned");
             if let Some(available) = *status {
                 return (
                     available,
@@ -224,13 +211,6 @@ pub fn count_tokens(text: &str, model: TokenModel) -> usize {
         Some(bpe) => bpe.encode_with_special_tokens(text).len(),
         None => estimate_tokens_heuristic(text),
     }
-}
-
-/// Count tokens using the default model (cl100k_base)
-///
-/// This is the recommended function for most use cases.
-pub fn count_tokens_default(text: &str) -> usize {
-    count_tokens(text, TokenModel::default())
 }
 
 /// Estimate tokens using a fast heuristic (no BPE encoding)

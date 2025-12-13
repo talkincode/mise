@@ -315,18 +315,8 @@ impl MarkResult {
 }
 
 /// Run single mark command
-pub fn run_mark(
-    root: &Path,
-    path: &str,
-    start_line: u32,
-    end_line: u32,
-    id: &str,
-    tags: Vec<String>,
-    version: u32,
-    dry_run: bool,
-    config: RenderConfig,
-) -> Result<()> {
-    let result_set = mark_to_result_set(root, path, start_line, end_line, id, tags, version, dry_run)?;
+pub fn run_mark(root: &Path, spec: &MarkSpec, dry_run: bool, config: RenderConfig) -> Result<()> {
+    let result_set = mark_to_result_set(root, spec, dry_run)?;
 
     let renderer = Renderer::with_config(config);
     println!("{}", renderer.render(&result_set));
@@ -334,27 +324,9 @@ pub fn run_mark(
     Ok(())
 }
 
-/// Public API for MCP: mark and return ResultSet
-pub fn mark_to_result_set(
-    root: &Path,
-    path: &str,
-    start_line: u32,
-    end_line: u32,
-    id: &str,
-    tags: Vec<String>,
-    version: u32,
-    dry_run: bool,
-) -> Result<ResultSet> {
-    let spec = MarkSpec {
-        path: path.to_string(),
-        start_line,
-        end_line,
-        id: id.to_string(),
-        tags,
-        version,
-    };
-
-    let result = mark_file(root, &spec, dry_run)?;
+/// Mark and return ResultSet
+pub fn mark_to_result_set(root: &Path, spec: &MarkSpec, dry_run: bool) -> Result<ResultSet> {
+    let result = mark_file(root, spec, dry_run)?;
     let mut result_set = ResultSet::new();
     result_set.push(result.to_result_item());
 
@@ -1155,18 +1127,17 @@ mod tests {
             pretty: false,
         };
 
+        let spec = MarkSpec {
+            path: "test.md".to_string(),
+            start_line: 1,
+            end_line: 2,
+            id: "test-anchor".to_string(),
+            tags: vec!["tag1".to_string()],
+            version: 1,
+        };
+
         // Dry run should not modify the file
-        let result = run_mark(
-            temp.path(),
-            "test.md",
-            1,
-            2,
-            "test-anchor",
-            vec!["tag1".to_string()],
-            1,
-            true,
-            config,
-        );
+        let result = run_mark(temp.path(), &spec, true, config);
         assert!(result.is_ok());
 
         // File should be unchanged
@@ -1186,17 +1157,16 @@ mod tests {
             pretty: false,
         };
 
-        let result = run_mark(
-            temp.path(),
-            "test.md",
-            1,
-            2,
-            "test-anchor",
-            vec!["tag1".to_string()],
-            1,
-            false,
-            config,
-        );
+        let spec = MarkSpec {
+            path: "test.md".to_string(),
+            start_line: 1,
+            end_line: 2,
+            id: "test-anchor".to_string(),
+            tags: vec!["tag1".to_string()],
+            version: 1,
+        };
+
+        let result = run_mark(temp.path(), &spec, false, config);
         assert!(result.is_ok());
 
         // File should be modified

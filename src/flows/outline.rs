@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::anchors::parse::{parse_file, Anchor};
-use crate::backends::scan::scan_files;
+use crate::backends::scan::{scan_files, ScanOptions};
 use crate::core::model::{Confidence, Kind, ResultItem, ResultSet, SourceMode};
 use crate::core::render::{RenderConfig, Renderer};
 use crate::core::tokenizer::{count_tokens, TokenModel};
@@ -123,7 +123,11 @@ fn determine_level(anchor: &Anchor, all_anchors: &[Anchor]) -> usize {
 }
 
 /// Build outline from anchor
-fn anchor_to_outline_item(anchor: &Anchor, all_anchors: &[Anchor], model: TokenModel) -> OutlineItem {
+fn anchor_to_outline_item(
+    anchor: &Anchor,
+    all_anchors: &[Anchor],
+    model: TokenModel,
+) -> OutlineItem {
     let content = anchor.content.as_deref().unwrap_or("");
     let chars = content.chars().count();
     let words = count_words(content);
@@ -159,7 +163,13 @@ pub fn generate_outline(
 
     let files = if scope.is_some() {
         // If scope is specified, do a direct scan (scope is specific)
-        scan_files(root, scope, None, false, true, Some("file"))?
+        let options = ScanOptions {
+            scope: scope.map(|p| p.to_path_buf()),
+            file_type: Some("file".to_string()),
+            ignore: true,
+            ..Default::default()
+        };
+        scan_files(root, &options)?
     } else {
         // Use cached files when no scope
         get_files_cached(root)?
@@ -402,23 +412,6 @@ fn outline_to_result_set(outline: &ProjectOutline) -> ResultSet {
     }
 
     result_set
-}
-
-/// Public API for MCP: generate outline and return as JSON
-pub fn outline_to_result(
-    root: &Path,
-    scope: Option<&Path>,
-    tag_filter: Option<&str>,
-    extensions: Option<Vec<String>>,
-    token_model: TokenModel,
-) -> Result<serde_json::Value> {
-    let ext_refs: Option<Vec<&str>> = extensions
-        .as_ref()
-        .map(|v| v.iter().map(|s| s.as_str()).collect());
-    let ext_slice: Option<&[&str]> = ext_refs.as_deref();
-
-    let outline = generate_outline(root, scope, tag_filter, ext_slice, token_model)?;
-    Ok(serde_json::to_value(outline)?)
 }
 
 /// Run the outline command
@@ -871,7 +864,7 @@ mod tests {
         let cl100k = count_tokens(text, TokenModel::Cl100k);
         let o200k = count_tokens(text, TokenModel::O200k);
         let heuristic = count_tokens(text, TokenModel::Heuristic);
-        
+
         // All should produce non-zero results
         assert!(cl100k > 0);
         assert!(o200k > 0);

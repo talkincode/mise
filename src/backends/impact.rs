@@ -11,7 +11,7 @@ use std::process::Command;
 
 use crate::anchors::parse::parse_file;
 use crate::backends::deps::{analyze_deps, DepGraph};
-use crate::backends::scan::scan_files;
+use crate::backends::scan::{scan_files, ScanOptions};
 use crate::core::model::{Confidence, Kind, MiseError, ResultItem, ResultSet, SourceMode};
 use crate::core::render::{RenderConfig, Renderer};
 use crate::core::util::command_exists;
@@ -233,7 +233,12 @@ fn find_affected_anchors(
         .collect();
 
     // Scan all files and parse anchors
-    let files = match scan_files(root, None, None, false, true, Some("file")) {
+    let options = ScanOptions {
+        file_type: Some("file".to_string()),
+        ignore: true,
+        ..Default::default()
+    };
+    let files = match scan_files(root, &options) {
         Ok(result) => result,
         Err(_) => return Vec::new(),
     };
@@ -604,33 +609,6 @@ pub fn run_impact(
 
     println!("{}", output);
     Ok(())
-}
-
-/// Public API for MCP: analyze impact and return JSON
-pub fn impact_to_result(
-    root: &Path,
-    staged: bool,
-    commit: Option<&str>,
-    diff: Option<&str>,
-    max_depth: usize,
-) -> Result<serde_json::Value> {
-    // Check if git is available
-    if !command_exists("git") {
-        return Ok(serde_json::json!({
-            "error": {
-                "code": "GIT_NOT_FOUND",
-                "message": "git is not installed. Please install git to use impact analysis."
-            }
-        }));
-    }
-
-    // Determine diff source
-    let source = DiffSource::from_args(staged, commit, diff);
-
-    // Analyze impact
-    let analysis = analyze_impact(root, source, max_depth)?;
-
-    Ok(serde_json::to_value(analysis)?)
 }
 
 #[cfg(test)]

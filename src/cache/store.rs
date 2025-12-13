@@ -103,7 +103,12 @@ pub fn rebuild_to_result_set(root: &Path) -> Result<ResultSet> {
     let cache_path = ensure_cache_dir(root)?;
 
     // Generate files.jsonl using scan
-    let files = crate::backends::scan::scan_files(root, None, None, false, true, Some("file"))?;
+    let options = crate::backends::scan::ScanOptions {
+        file_type: Some("file".to_string()),
+        ignore: true,
+        ..Default::default()
+    };
+    let files = crate::backends::scan::scan_files(root, &options)?;
     write_cache_jsonl(&cache_path, FILES_CACHE, &files.items)?;
 
     // Generate anchors.jsonl using anchor list

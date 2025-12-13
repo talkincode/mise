@@ -8,7 +8,7 @@ use std::path::Path;
 
 use crate::anchors::api::list_anchors;
 use crate::anchors::parse::{parse_file, Anchor};
-use crate::backends::scan::scan_files;
+use crate::backends::scan::{scan_files, ScanOptions};
 use crate::cache::store::{is_cache_valid, read_cache_jsonl, ANCHORS_CACHE, FILES_CACHE};
 use crate::core::model::ResultSet;
 use crate::core::paths::cache_dir;
@@ -28,7 +28,12 @@ pub fn get_files_cached(root: &Path) -> Result<ResultSet> {
     }
 
     // Fall back to live scan
-    scan_files(root, None, None, false, true, Some("file"))
+    let options = ScanOptions {
+        file_type: Some("file".to_string()),
+        ignore: true,
+        ..Default::default()
+    };
+    scan_files(root, &options)
 }
 
 /// Get anchors list, preferring cache if valid

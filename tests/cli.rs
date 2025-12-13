@@ -4,6 +4,10 @@ use std::fs;
 use std::path::Path;
 use tempfile::tempdir;
 
+fn mise_cmd() -> Command {
+    Command::cargo_bin("mise").expect("Failed to find mise binary")
+}
+
 fn parse_jsonl(stdout: &[u8]) -> Vec<Value> {
     let s = String::from_utf8_lossy(stdout);
     s.lines()
@@ -27,7 +31,7 @@ fn scan_lists_files_in_stable_order() {
     write_file(&temp.path().join("a.txt"), "a");
     write_file(&temp.path().join("sub/zz.md"), "z");
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("scan")
@@ -54,7 +58,7 @@ fn extract_returns_expected_excerpt() {
         "line 1\nline 2\nline 3\nline 4\n",
     );
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("extract")
@@ -83,7 +87,7 @@ fn anchor_lint_flags_empty_anchor() {
         "<!--Q:begin id=empty tags=t v=1-->\n<!--Q:end id=empty-->\n",
     );
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root").arg(temp.path()).arg("anchor").arg("lint");
 
     let assert = cmd.assert().success();
@@ -109,7 +113,7 @@ fn deps_analyzes_rust_file_dependencies() {
         "use crate::foo;\n\npub fn bar() { foo::foo(); }\n",
     );
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("deps")
@@ -136,7 +140,7 @@ fn deps_reverse_shows_dependents() {
     );
     write_file(&temp.path().join("src/lib.rs"), "pub fn lib_fn() {}\n");
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("deps")
@@ -163,7 +167,7 @@ fn deps_table_format_works() {
     );
     write_file(&temp.path().join("src/utils.rs"), "pub fn helper() {}\n");
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("deps")
@@ -190,7 +194,7 @@ fn deps_dot_format_produces_graphviz() {
     );
     write_file(&temp.path().join("src/core.rs"), "pub fn core_fn() {}\n");
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("deps")
@@ -216,7 +220,7 @@ fn deps_mermaid_format_produces_diagram() {
     );
     write_file(&temp.path().join("src/api.rs"), "pub fn api_fn() {}\n");
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("deps")
@@ -240,7 +244,7 @@ fn deps_jsonl_format_returns_valid_json() {
     );
     write_file(&temp.path().join("src/helper.rs"), "pub fn help() {}\n");
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("deps")
@@ -270,7 +274,7 @@ fn deps_python_file_analysis() {
     );
     write_file(&temp.path().join("utils.py"), "def helper():\n    pass\n");
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("deps")
@@ -297,7 +301,7 @@ fn deps_typescript_file_analysis() {
         "export function helper() {}\n",
     );
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("deps")
@@ -353,7 +357,7 @@ fn impact_returns_valid_json_output() {
         "fn main() { println!(\"hello\"); }\n",
     );
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("impact")
@@ -406,7 +410,7 @@ fn impact_summary_format_works() {
     // Make an unstaged change
     write_file(&temp.path().join("test.txt"), "modified content\n");
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("impact")
@@ -458,7 +462,7 @@ fn impact_table_format_works() {
     // Make an unstaged change
     write_file(&temp.path().join("test.txt"), "modified\n");
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("impact")
@@ -514,7 +518,7 @@ fn impact_staged_option_works() {
         .output()
         .unwrap();
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("impact")
@@ -567,7 +571,7 @@ fn impact_no_changes_returns_empty() {
         .output()
         .unwrap();
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("impact")
@@ -599,7 +603,7 @@ fn pack_files_returns_valid_jsonl() {
         "fn main() { println!(\"hello\"); }",
     );
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("flow")
@@ -631,7 +635,7 @@ More content here.
     );
     write_file(&temp.path().join("extra.txt"), "extra content");
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("flow")
@@ -662,7 +666,7 @@ fn pack_with_max_tokens_truncates() {
     let large_content = "x".repeat(10000); // ~2500 tokens
     write_file(&temp.path().join("large.txt"), &large_content);
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("flow")
@@ -689,7 +693,7 @@ fn pack_with_stats_outputs_statistics() {
     write_file(&temp.path().join("a.txt"), "content a");
     write_file(&temp.path().join("b.txt"), "content b");
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("flow")
@@ -716,7 +720,7 @@ fn pack_priority_by_confidence_orders_correctly() {
     write_file(&temp.path().join("file1.txt"), "content one");
     write_file(&temp.path().join("file2.txt"), "content two");
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("flow")
@@ -738,7 +742,7 @@ fn pack_priority_by_confidence_orders_correctly() {
 fn pack_empty_selection_returns_empty() {
     let temp = tempdir().unwrap();
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root").arg(temp.path()).arg("flow").arg("pack");
 
     // No anchors or files specified
@@ -761,7 +765,7 @@ fn stats_returns_summary_output() {
     );
     write_file(&temp.path().join("readme.txt"), "简单的中文测试内容。\n");
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root").arg(temp.path()).arg("flow").arg("stats");
 
     let assert = cmd.assert().success();
@@ -778,7 +782,7 @@ fn stats_json_format_works() {
 
     write_file(&temp.path().join("test.md"), "Test content\n");
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("flow")
@@ -801,7 +805,7 @@ fn stats_table_format_works() {
 
     write_file(&temp.path().join("test.md"), "Test content for table\n");
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("flow")
@@ -835,7 +839,7 @@ Some content here.
 "#,
     );
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("flow")
@@ -860,7 +864,7 @@ Content
 "#,
     );
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("flow")
@@ -887,7 +891,7 @@ Test
 "#,
     );
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("flow")
@@ -920,7 +924,7 @@ A note
 "#,
     );
 
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mise"));
+    let mut cmd = mise_cmd();
     cmd.arg("--root")
         .arg(temp.path())
         .arg("flow")
@@ -939,4 +943,370 @@ A note
     // Should only include chapter-tagged anchor
     assert_eq!(items.len(), 1);
     assert!(items[0]["id"].as_str().unwrap().contains("ch1"));
+}
+
+// =============================================================================
+// Match Command Enhanced Options Tests
+// =============================================================================
+
+#[test]
+fn match_with_include_glob_filters_files() {
+    let temp = tempdir().unwrap();
+
+    write_file(&temp.path().join("code.rs"), "fn hello() {}\n");
+    write_file(&temp.path().join("code.py"), "def hello(): pass\n");
+
+    let mut cmd = mise_cmd();
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("match")
+        .arg("hello")
+        .arg("--include")
+        .arg("*.rs");
+
+    let assert = cmd.assert().success();
+    let items = parse_jsonl(&assert.get_output().stdout);
+
+    // Should only find matches in .rs files
+    for item in &items {
+        if item.get("kind").and_then(|k| k.as_str()) == Some("match") {
+            let path = item.get("path").and_then(|p| p.as_str()).unwrap();
+            assert!(path.ends_with(".rs"), "Expected .rs file, got {}", path);
+        }
+    }
+}
+
+#[test]
+fn match_with_exclude_glob_filters_files() {
+    let temp = tempdir().unwrap();
+
+    write_file(&temp.path().join("main.rs"), "fn hello() {}\n");
+    write_file(&temp.path().join("main_test.rs"), "fn test_hello() {}\n");
+
+    let mut cmd = mise_cmd();
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("match")
+        .arg("hello")
+        .arg("--exclude")
+        .arg("*_test.rs");
+
+    let assert = cmd.assert().success();
+    let items = parse_jsonl(&assert.get_output().stdout);
+
+    // Should not find matches in _test.rs files
+    for item in &items {
+        if item.get("kind").and_then(|k| k.as_str()) == Some("match") {
+            let path = item.get("path").and_then(|p| p.as_str()).unwrap();
+            assert!(!path.contains("_test"), "Should exclude test files");
+        }
+    }
+}
+
+#[test]
+fn match_with_count_returns_count_only() {
+    let temp = tempdir().unwrap();
+
+    write_file(
+        &temp.path().join("test.txt"),
+        "hello\nhello\nhello world\n",
+    );
+
+    let mut cmd = mise_cmd();
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("match")
+        .arg("hello")
+        .arg("--count");
+
+    let assert = cmd.assert().success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+
+    // Should return JSON with count
+    let json: Value = serde_json::from_str(stdout.trim()).expect("valid json");
+    let count = json.get("count").and_then(|c| c.as_u64()).unwrap();
+    assert!(count >= 2, "Expected at least 2 matches");
+}
+
+#[test]
+fn match_with_max_count_limits_results() {
+    let temp = tempdir().unwrap();
+
+    write_file(
+        &temp.path().join("test.txt"),
+        "match1\nmatch2\nmatch3\nmatch4\nmatch5\n",
+    );
+
+    let mut cmd = mise_cmd();
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("match")
+        .arg("match")
+        .arg("--max-count")
+        .arg("2");
+
+    let assert = cmd.assert().success();
+    let items = parse_jsonl(&assert.get_output().stdout);
+
+    let match_count = items
+        .iter()
+        .filter(|i| i.get("kind").and_then(|k| k.as_str()) == Some("match"))
+        .count();
+
+    assert!(match_count <= 2, "Expected at most 2 matches");
+}
+
+#[test]
+fn match_with_ignore_case_finds_case_variants() {
+    let temp = tempdir().unwrap();
+
+    write_file(&temp.path().join("test.txt"), "Hello\nHELLO\nhello\n");
+
+    let mut cmd = mise_cmd();
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("match")
+        .arg("hello")
+        .arg("--ignore-case");
+
+    let assert = cmd.assert().success();
+    let items = parse_jsonl(&assert.get_output().stdout);
+
+    let match_count = items
+        .iter()
+        .filter(|i| i.get("kind").and_then(|k| k.as_str()) == Some("match"))
+        .count();
+
+    // Should find all 3 case variants
+    assert!(match_count >= 3, "Expected 3 matches with ignore-case");
+}
+
+#[test]
+fn match_with_word_regexp_matches_whole_words() {
+    let temp = tempdir().unwrap();
+
+    write_file(
+        &temp.path().join("test.txt"),
+        "fn main()\nfunction test()\nmain_helper()\n",
+    );
+
+    // Without -w: should match "main" in all lines containing "main"
+    let mut cmd_no_w = mise_cmd();
+    cmd_no_w
+        .arg("--root")
+        .arg(temp.path())
+        .arg("match")
+        .arg("main");
+
+    let assert_no_w = cmd_no_w.assert().success();
+    let items_no_w = parse_jsonl(&assert_no_w.get_output().stdout);
+    let count_no_w = items_no_w
+        .iter()
+        .filter(|i| i.get("kind").and_then(|k| k.as_str()) == Some("match"))
+        .count();
+
+    // With -w: should only match standalone "main"
+    let mut cmd_w = mise_cmd();
+    cmd_w
+        .arg("--root")
+        .arg(temp.path())
+        .arg("match")
+        .arg("main")
+        .arg("--word-regexp");
+
+    let assert_w = cmd_w.assert().success();
+    let items_w = parse_jsonl(&assert_w.get_output().stdout);
+    let count_w = items_w
+        .iter()
+        .filter(|i| i.get("kind").and_then(|k| k.as_str()) == Some("match"))
+        .count();
+
+    // Word-bounded should find fewer or equal matches
+    assert!(
+        count_w <= count_no_w,
+        "Word regexp should find fewer matches"
+    );
+}
+
+#[test]
+fn match_with_context_shows_surrounding_lines() {
+    let temp = tempdir().unwrap();
+
+    write_file(
+        &temp.path().join("test.txt"),
+        "line1\nline2\nMATCH\nline4\nline5\n",
+    );
+
+    let mut cmd = mise_cmd();
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("match")
+        .arg("MATCH")
+        .arg("--context")
+        .arg("1");
+
+    // Just verify command succeeds - context is handled by rg
+    cmd.assert().success();
+}
+
+// =============================================================================
+// Scan Command Enhanced Options Tests
+// =============================================================================
+
+#[test]
+fn scan_with_include_glob_filters_files() {
+    let temp = tempdir().unwrap();
+
+    write_file(&temp.path().join("main.rs"), "rust code");
+    write_file(&temp.path().join("lib.rs"), "more rust");
+    write_file(&temp.path().join("readme.md"), "docs");
+
+    let mut cmd = mise_cmd();
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("scan")
+        .arg("--type")
+        .arg("file")
+        .arg("--include")
+        .arg("*.rs");
+
+    let assert = cmd.assert().success();
+    let items = parse_jsonl(&assert.get_output().stdout);
+
+    // Should only include .rs files
+    assert_eq!(items.len(), 2);
+    for item in &items {
+        let path = item.get("path").and_then(|p| p.as_str()).unwrap();
+        assert!(path.ends_with(".rs"));
+    }
+}
+
+#[test]
+fn scan_with_exclude_glob_filters_files() {
+    let temp = tempdir().unwrap();
+
+    write_file(&temp.path().join("main.rs"), "code");
+    write_file(&temp.path().join("main_test.rs"), "test code");
+    write_file(&temp.path().join("lib.rs"), "lib code");
+
+    let mut cmd = mise_cmd();
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("scan")
+        .arg("--type")
+        .arg("file")
+        .arg("--exclude")
+        .arg("*_test.rs");
+
+    let assert = cmd.assert().success();
+    let items = parse_jsonl(&assert.get_output().stdout);
+
+    // Should exclude _test.rs files
+    assert_eq!(items.len(), 2);
+    for item in &items {
+        let path = item.get("path").and_then(|p| p.as_str()).unwrap();
+        assert!(!path.contains("_test"));
+    }
+}
+
+#[test]
+fn scan_with_multiple_include_patterns() {
+    let temp = tempdir().unwrap();
+
+    write_file(&temp.path().join("main.rs"), "rust");
+    write_file(&temp.path().join("script.py"), "python");
+    write_file(&temp.path().join("readme.md"), "docs");
+
+    let mut cmd = mise_cmd();
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("scan")
+        .arg("--type")
+        .arg("file")
+        .arg("--include")
+        .arg("*.rs")
+        .arg("--include")
+        .arg("*.py");
+
+    let assert = cmd.assert().success();
+    let items = parse_jsonl(&assert.get_output().stdout);
+
+    // Should include both .rs and .py files
+    assert_eq!(items.len(), 2);
+}
+
+// =============================================================================
+// AST Command Enhanced Options Tests
+// =============================================================================
+
+#[test]
+fn ast_with_include_glob_filters_files() {
+    let temp = tempdir().unwrap();
+
+    write_file(&temp.path().join("main.rs"), "fn main() {}\n");
+    write_file(&temp.path().join("test.py"), "def main(): pass\n");
+
+    let mut cmd = mise_cmd();
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("ast")
+        .arg("fn $NAME()")
+        .arg("--include")
+        .arg("*.rs");
+
+    let assert = cmd.assert().success();
+    let items = parse_jsonl(&assert.get_output().stdout);
+
+    // All matches should be from .rs files
+    for item in &items {
+        if item.get("kind").and_then(|k| k.as_str()) == Some("match") {
+            let path = item.get("path").and_then(|p| p.as_str()).unwrap();
+            assert!(path.ends_with(".rs"));
+        }
+    }
+}
+
+#[test]
+fn ast_with_exclude_glob_filters_files() {
+    let temp = tempdir().unwrap();
+
+    write_file(&temp.path().join("main.rs"), "fn main() {}\n");
+    write_file(&temp.path().join("main_test.rs"), "fn test_main() {}\n");
+
+    let mut cmd = mise_cmd();
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("ast")
+        .arg("fn $NAME()")
+        .arg("--exclude")
+        .arg("*_test.rs");
+
+    let assert = cmd.assert().success();
+    let items = parse_jsonl(&assert.get_output().stdout);
+
+    // Should not find matches in _test.rs files
+    for item in &items {
+        if item.get("kind").and_then(|k| k.as_str()) == Some("match") {
+            let path = item.get("path").and_then(|p| p.as_str()).unwrap();
+            assert!(!path.contains("_test"));
+        }
+    }
+}
+
+#[test]
+fn ast_with_language_option() {
+    let temp = tempdir().unwrap();
+
+    write_file(&temp.path().join("main.rs"), "fn main() {}\n");
+
+    let mut cmd = mise_cmd();
+    cmd.arg("--root")
+        .arg(temp.path())
+        .arg("ast")
+        .arg("fn main()")
+        .arg("--lang")
+        .arg("rust");
+
+    // Just verify command succeeds with --lang option
+    cmd.assert().success();
 }

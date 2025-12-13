@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use crate::anchors::api::get_anchor;
-use crate::backends::rg::run_rg;
+use crate::backends::rg::{run_rg, MatchOptions};
 use crate::cache::reader::{find_anchor_by_id, get_all_anchors_parsed};
 use crate::core::model::{Confidence, ResultSet};
 use crate::core::render::{RenderConfig, Renderer};
@@ -28,15 +28,6 @@ pub fn run_writing(
     println!("{}", renderer.render(&result_set));
 
     Ok(())
-}
-
-/// Alias for MCP compatibility
-pub fn writing_to_result_set(
-    root: &Path,
-    anchor_id: &str,
-    max_items: usize,
-) -> Result<ResultSet> {
-    gather_writing_evidence(root, anchor_id, max_items)
 }
 
 /// Gather evidence for a writing task
@@ -110,7 +101,8 @@ pub fn gather_writing_evidence(
 
         if !keywords.is_empty() {
             let pattern = keywords.join("|");
-            let search_results = run_rg(root, &pattern, &[] as &[&Path])?;
+            // No include/exclude filters for writing flow
+            let search_results = run_rg(root, &pattern, &[] as &[&Path], &MatchOptions::default())?;
 
             let mut search_count = 0;
             for mut item in search_results.items {
@@ -591,7 +583,7 @@ Some other content.
         // The function may return an error or an empty result set
         // depending on implementation details
         match result {
-            Ok(result_set) => {
+            Ok(_result_set) => {
                 // If it succeeds, result should be empty or only have error items
                 // since the anchor wasn't found
             }

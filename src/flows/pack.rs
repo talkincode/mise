@@ -297,22 +297,10 @@ pub fn pack_context(root: &Path, opts: PackOptions) -> Result<(ResultSet, PackSt
 /// Run the pack command
 pub fn run_pack(
     root: &Path,
-    anchors: Vec<String>,
-    files: Vec<String>,
-    max_tokens: Option<usize>,
-    priority: PackPriority,
+    opts: PackOptions,
     show_stats: bool,
-    token_model: TokenModel,
     config: RenderConfig,
 ) -> Result<()> {
-    let opts = PackOptions {
-        anchors: anchors.clone(),
-        files: files.clone(),
-        max_tokens,
-        priority: priority.clone(),
-        token_model: token_model.clone(),
-    };
-
     let (result_set, stats) = pack_context(root, opts)?;
 
     // Output stats to stderr if requested
@@ -334,27 +322,6 @@ pub fn run_pack(
     println!("{}", renderer.render(&result_set));
 
     Ok(())
-}
-
-/// Public API for MCP: pack and return ResultSet
-pub fn pack_to_result_set(
-    root: &Path,
-    anchors: Vec<String>,
-    files: Vec<String>,
-    max_tokens: Option<usize>,
-    priority: PackPriority,
-    token_model: TokenModel,
-) -> Result<ResultSet> {
-    let opts = PackOptions {
-        anchors,
-        files,
-        max_tokens,
-        priority,
-        token_model,
-    };
-
-    let (result_set, _stats) = pack_context(root, opts)?;
-    Ok(result_set)
 }
 
 #[cfg(test)]

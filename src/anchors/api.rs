@@ -4,16 +4,24 @@ use anyhow::Result;
 use std::path::Path;
 
 use crate::anchors::parse::{parse_file, Anchor};
-use crate::backends::scan::scan_files;
+use crate::backends::scan::{scan_files, ScanOptions};
 use crate::core::model::ResultSet;
 use crate::core::render::{RenderConfig, Renderer};
+
+fn file_scan_options() -> ScanOptions {
+    ScanOptions {
+        file_type: Some("file".to_string()),
+        ignore: true,
+        ..Default::default()
+    }
+}
 
 /// List all anchors in the workspace
 pub fn list_anchors(root: &Path, tag_filter: Option<&str>) -> Result<ResultSet> {
     let mut result_set = ResultSet::new();
 
     // Scan all files
-    let files = scan_files(root, None, None, false, true, Some("file"))?;
+    let files = scan_files(root, &file_scan_options())?;
 
     for item in files.items {
         if let Some(path) = &item.path {
@@ -50,7 +58,7 @@ pub fn get_anchor(root: &Path, id: &str, with_neighbors: Option<usize>) -> Resul
     let mut all_anchors: Vec<Anchor> = Vec::new();
 
     // Scan and collect all anchors
-    let files = scan_files(root, None, None, false, true, Some("file"))?;
+    let files = scan_files(root, &file_scan_options())?;
 
     for item in files.items {
         if let Some(path) = &item.path {
@@ -128,11 +136,6 @@ pub fn run_list(root: &Path, tag: Option<&str>, config: RenderConfig) -> Result<
     Ok(())
 }
 
-/// Alias for MCP compatibility
-pub fn list_to_result_set(root: &Path, tag: Option<&str>) -> Result<ResultSet> {
-    list_anchors(root, tag)
-}
-
 /// Run anchor get command
 pub fn run_get(
     root: &Path,
@@ -146,15 +149,6 @@ pub fn run_get(
     println!("{}", renderer.render(&result_set));
 
     Ok(())
-}
-
-/// Alias for MCP compatibility
-pub fn get_to_result_set(
-    root: &Path,
-    id: &str,
-    with_neighbors: Option<usize>,
-) -> Result<ResultSet> {
-    get_anchor(root, id, with_neighbors)
 }
 
 #[cfg(test)]
@@ -222,9 +216,10 @@ mod tests {
     #[test]
     fn test_list_anchors_with_anchors() {
         let temp = tempfile::tempdir().unwrap();
-        let content = "# Test\n<!--Q:begin id=test1 tags=a,b v=1-->\nContent\n<!--Q:end id=test1-->\n";
+        let content =
+            "# Test\n<!--Q:begin id=test1 tags=a,b v=1-->\nContent\n<!--Q:end id=test1-->\n";
         std::fs::write(temp.path().join("test.md"), content).unwrap();
-        
+
         let result = list_anchors(temp.path(), None).unwrap();
         assert_eq!(result.items.len(), 1);
     }
@@ -234,7 +229,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let content = "<!--Q:begin id=a tags=foo v=1-->\nA\n<!--Q:end id=a-->\n<!--Q:begin id=b tags=bar v=1-->\nB\n<!--Q:end id=b-->\n";
         std::fs::write(temp.path().join("test.md"), content).unwrap();
-        
+
         let result = list_anchors(temp.path(), Some("foo")).unwrap();
         assert_eq!(result.items.len(), 1);
     }
@@ -244,7 +239,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let content = "# Test\n<!--Q:begin id=test1 v=1-->\nContent\n<!--Q:end id=test1-->\n";
         std::fs::write(temp.path().join("test.md"), content).unwrap();
-        
+
         let result = get_anchor(temp.path(), "nonexistent", None).unwrap();
         assert!(result.items.is_empty());
     }
@@ -254,7 +249,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let content = "# Test\n<!--Q:begin id=test1 v=1-->\nContent\n<!--Q:end id=test1-->\n";
         std::fs::write(temp.path().join("test.md"), content).unwrap();
-        
+
         let result = get_anchor(temp.path(), "test1", None).unwrap();
         assert_eq!(result.items.len(), 1);
     }
@@ -264,7 +259,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let content = "<!--Q:begin id=a tags=common v=1-->\nA\n<!--Q:end id=a-->\n<!--Q:begin id=b tags=common v=1-->\nB\n<!--Q:end id=b-->\n<!--Q:begin id=c tags=other v=1-->\nC\n<!--Q:end id=c-->\n";
         std::fs::write(temp.path().join("test.md"), content).unwrap();
-        
+
         let result = get_anchor(temp.path(), "a", Some(2)).unwrap();
         // Should have anchor 'a' and neighbor 'b' (which shares tag 'common')
         assert!(result.items.len() >= 1);

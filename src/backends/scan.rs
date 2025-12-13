@@ -4,32 +4,57 @@
 
 use anyhow::Result;
 use ignore::WalkBuilder;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::core::model::{Meta, ResultItem, ResultSet};
 use crate::core::paths::make_relative;
 use crate::core::render::{RenderConfig, Renderer};
 use crate::core::util::{get_file_size, get_mtime_ms};
 
+/// Options for the scan command
+#[derive(Debug, Default)]
+pub struct ScanOptions {
+    pub scope: Option<PathBuf>,
+    pub max_depth: Option<usize>,
+    pub hidden: bool,
+    pub ignore: bool,
+    pub file_type: Option<String>,
+    pub include: Vec<String>,
+    pub exclude: Vec<String>,
+}
+
+/// Simple glob matching (supports * and **)
+fn glob_match(pattern: &str, path: &str) -> bool {
+    if pattern.starts_with("*.") {
+        // Extension match: *.rs -> ends with .rs
+        let ext = &pattern[1..];
+        path.ends_with(ext)
+    } else if pattern.ends_with("/*") {
+        // Directory match: vendor/* -> starts with vendor/
+        let prefix = &pattern[..pattern.len() - 1];
+        path.starts_with(prefix)
+    } else if pattern.contains('*') {
+        // Generic wildcard - simple contains check for the non-wildcard part
+        let parts: Vec<&str> = pattern.split('*').filter(|s| !s.is_empty()).collect();
+        parts.iter().all(|part| path.contains(part))
+    } else {
+        // Exact match
+        path == pattern || path.contains(pattern)
+    }
+}
+
 /// Scan files in a directory
-pub fn scan_files(
-    root: &Path,
-    scope: Option<&Path>,
-    max_depth: Option<usize>,
-    hidden: bool,
-    ignore: bool,
-    file_type: Option<&str>,
-) -> Result<ResultSet> {
-    let scan_path = scope.unwrap_or(root);
+pub fn scan_files(root: &Path, options: &ScanOptions) -> Result<ResultSet> {
+    let scan_path = options.scope.as_deref().unwrap_or(root);
 
     let mut builder = WalkBuilder::new(scan_path);
     builder
-        .hidden(!hidden)
-        .git_ignore(ignore)
-        .git_global(ignore)
-        .git_exclude(ignore);
+        .hidden(!options.hidden)
+        .git_ignore(options.ignore)
+        .git_global(options.ignore)
+        .git_exclude(options.ignore);
 
-    if let Some(depth) = max_depth {
+    if let Some(depth) = options.max_depth {
         builder.max_depth(Some(depth));
     }
 
@@ -45,7 +70,7 @@ pub fn scan_files(
 
         // Filter by type
         let is_dir = path.is_dir();
-        match file_type {
+        match options.file_type.as_deref() {
             Some("file") if is_dir => continue,
             Some("dir") if !is_dir => continue,
             _ => {}
@@ -61,6 +86,24 @@ pub fn scan_files(
             Some(r) => r,
             None => continue,
         };
+
+        // Apply include/exclude filters
+        if !options.include.is_empty() {
+            let matched = options
+                .include
+                .iter()
+                .any(|glob| glob_match(glob, &relative));
+            if !matched {
+                continue;
+            }
+        }
+        if options
+            .exclude
+            .iter()
+            .any(|glob| glob_match(glob, &relative))
+        {
+            continue;
+        }
 
         // Build result item
         let mut item = ResultItem::file(relative);
@@ -85,16 +128,8 @@ pub fn scan_files(
 }
 
 /// Run the scan command
-pub fn run_scan(
-    root: &Path,
-    scope: Option<&Path>,
-    max_depth: Option<usize>,
-    hidden: bool,
-    ignore: bool,
-    file_type: Option<&str>,
-    config: RenderConfig,
-) -> Result<()> {
-    let result_set = scan_files(root, scope, max_depth, hidden, ignore, file_type)?;
+pub fn run_scan(root: &Path, options: ScanOptions, config: RenderConfig) -> Result<()> {
+    let result_set = scan_files(root, &options)?;
 
     let renderer = Renderer::with_config(config);
     println!("{}", renderer.render(&result_set));
@@ -119,7 +154,13 @@ pub fn run_find(
 
 /// Find files by pattern (for MCP and programmatic use)
 pub fn find_files(root: &Path, pattern: Option<&str>, scope: Option<&Path>) -> Result<ResultSet> {
-    let mut result_set = scan_files(root, scope, None, false, true, Some("file"))?;
+    let options = ScanOptions {
+        scope: scope.map(|p| p.to_path_buf()),
+        file_type: Some("file".to_string()),
+        ignore: true,
+        ..Default::default()
+    };
+    let mut result_set = scan_files(root, &options)?;
 
     // Filter by pattern if provided
     if let Some(pattern) = pattern {
@@ -135,36 +176,36 @@ pub fn find_files(root: &Path, pattern: Option<&str>, scope: Option<&Path>) -> R
     Ok(result_set)
 }
 
-/// Aliases for MCP compatibility
-pub fn scan_to_result_set(
-    root: &Path,
-    scope: Option<&Path>,
-    max_depth: Option<usize>,
-    hidden: bool,
-    ignore: bool,
-    file_type: Option<&str>,
-) -> Result<ResultSet> {
-    scan_files(root, scope, max_depth, hidden, ignore, file_type)
-}
-
-pub fn find_to_result_set(
-    root: &Path,
-    pattern: Option<&str>,
-    scope: Option<&Path>,
-) -> Result<ResultSet> {
-    find_files(root, pattern, scope)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs::{self, File};
     use tempfile::tempdir;
 
+    fn default_options() -> ScanOptions {
+        ScanOptions::default()
+    }
+
+    fn file_options() -> ScanOptions {
+        ScanOptions {
+            file_type: Some("file".to_string()),
+            ignore: true,
+            ..Default::default()
+        }
+    }
+
+    fn dir_options() -> ScanOptions {
+        ScanOptions {
+            file_type: Some("dir".to_string()),
+            ignore: true,
+            ..Default::default()
+        }
+    }
+
     #[test]
     fn test_scan_empty_dir() {
         let temp = tempdir().unwrap();
-        let result = scan_files(temp.path(), None, None, false, true, None).unwrap();
+        let result = scan_files(temp.path(), &default_options()).unwrap();
         assert!(result.is_empty());
     }
 
@@ -175,7 +216,7 @@ mod tests {
         File::create(temp.path().join("file2.rs")).unwrap();
         fs::create_dir(temp.path().join("subdir")).unwrap();
 
-        let result = scan_files(temp.path(), None, None, false, true, Some("file")).unwrap();
+        let result = scan_files(temp.path(), &file_options()).unwrap();
         assert_eq!(result.len(), 2);
     }
 
@@ -185,7 +226,7 @@ mod tests {
         File::create(temp.path().join("file1.txt")).unwrap();
         fs::create_dir(temp.path().join("subdir")).unwrap();
 
-        let result = scan_files(temp.path(), None, None, false, true, Some("dir")).unwrap();
+        let result = scan_files(temp.path(), &dir_options()).unwrap();
         assert_eq!(result.len(), 1);
     }
 
@@ -197,8 +238,13 @@ mod tests {
         File::create(subdir.join("main.rs")).unwrap();
         File::create(temp.path().join("README.md")).unwrap();
 
-        let result =
-            scan_files(temp.path(), Some(&subdir), None, false, true, Some("file")).unwrap();
+        let options = ScanOptions {
+            scope: Some(subdir),
+            file_type: Some("file".to_string()),
+            ignore: true,
+            ..Default::default()
+        };
+        let result = scan_files(temp.path(), &options).unwrap();
         assert_eq!(result.len(), 1);
         assert!(result.items[0].path.as_ref().unwrap().contains("main.rs"));
     }
@@ -212,8 +258,14 @@ mod tests {
         File::create(level1.join("file1.txt")).unwrap();
         File::create(level2.join("file2.txt")).unwrap();
 
-        // With max_depth = 1, should not traverse into level2
-        let result = scan_files(temp.path(), None, Some(2), false, true, Some("file")).unwrap();
+        // With max_depth = 2, should traverse into level1 but not level2
+        let options = ScanOptions {
+            max_depth: Some(2),
+            file_type: Some("file".to_string()),
+            ignore: true,
+            ..Default::default()
+        };
+        let result = scan_files(temp.path(), &options).unwrap();
         // Only file1.txt at depth 2 should be found (level1 is depth 1, file1.txt is depth 2)
         assert!(result.len() >= 1);
     }
@@ -225,16 +277,20 @@ mod tests {
         File::create(temp.path().join("visible.txt")).unwrap();
 
         // Without hidden=true, should skip hidden files
-        let result_no_hidden =
-            scan_files(temp.path(), None, None, false, true, Some("file")).unwrap();
+        let result_no_hidden = scan_files(temp.path(), &file_options()).unwrap();
         assert!(result_no_hidden
             .items
             .iter()
             .all(|i| !i.path.as_ref().unwrap().starts_with('.')));
 
         // With hidden=true, should include hidden files
-        let result_with_hidden =
-            scan_files(temp.path(), None, None, true, true, Some("file")).unwrap();
+        let options = ScanOptions {
+            hidden: true,
+            file_type: Some("file".to_string()),
+            ignore: true,
+            ..Default::default()
+        };
+        let result_with_hidden = scan_files(temp.path(), &options).unwrap();
         assert!(result_with_hidden.len() >= result_no_hidden.len());
     }
 
@@ -244,7 +300,7 @@ mod tests {
         let file_path = temp.path().join("test.txt");
         std::fs::write(&file_path, "hello world").unwrap();
 
-        let result = scan_files(temp.path(), None, None, false, true, Some("file")).unwrap();
+        let result = scan_files(temp.path(), &file_options()).unwrap();
         assert_eq!(result.len(), 1);
 
         let item = &result.items[0];
@@ -260,7 +316,11 @@ mod tests {
         fs::create_dir(temp.path().join("subdir")).unwrap();
 
         // With file_type = None, should include both files and directories
-        let result = scan_files(temp.path(), None, None, false, true, None).unwrap();
+        let options = ScanOptions {
+            ignore: true,
+            ..Default::default()
+        };
+        let result = scan_files(temp.path(), &options).unwrap();
         assert_eq!(result.len(), 2);
     }
 
@@ -271,7 +331,7 @@ mod tests {
         File::create(temp.path().join("a_file.txt")).unwrap();
         File::create(temp.path().join("m_file.txt")).unwrap();
 
-        let result = scan_files(temp.path(), None, None, false, true, Some("file")).unwrap();
+        let result = scan_files(temp.path(), &file_options()).unwrap();
         let paths: Vec<_> = result
             .items
             .iter()
@@ -293,7 +353,7 @@ mod tests {
             pretty: false,
         };
 
-        let result = run_scan(temp.path(), None, None, false, true, Some("file"), config);
+        let result = run_scan(temp.path(), file_options(), config);
         assert!(result.is_ok());
     }
 
@@ -363,7 +423,7 @@ mod tests {
         File::create(temp.path().join("included.txt")).unwrap();
 
         // With ignore=true, should skip ignored files
-        let result = scan_files(temp.path(), None, None, false, true, Some("file")).unwrap();
+        let result = scan_files(temp.path(), &file_options()).unwrap();
         let paths: Vec<_> = result
             .items
             .iter()
@@ -384,7 +444,12 @@ mod tests {
         File::create(temp.path().join("ignored.txt")).unwrap();
 
         // With ignore=false, should include all files
-        let result = scan_files(temp.path(), None, None, false, false, Some("file")).unwrap();
+        let options = ScanOptions {
+            file_type: Some("file".to_string()),
+            ignore: false,
+            ..Default::default()
+        };
+        let result = scan_files(temp.path(), &options).unwrap();
         let paths: Vec<_> = result
             .items
             .iter()
@@ -404,7 +469,7 @@ mod tests {
         File::create(deep.join("deep.txt")).unwrap();
 
         // Without max_depth, should find deep files
-        let result = scan_files(temp.path(), None, None, false, true, Some("file")).unwrap();
+        let result = scan_files(temp.path(), &file_options()).unwrap();
         assert!(result.items.iter().any(|i| i
             .path
             .as_ref()
@@ -417,11 +482,145 @@ mod tests {
         let temp = tempdir().unwrap();
         fs::create_dir(temp.path().join("empty_subdir")).unwrap();
 
-        let result = scan_files(temp.path(), None, None, false, true, Some("dir")).unwrap();
+        let result = scan_files(temp.path(), &dir_options()).unwrap();
         assert!(result.items.iter().any(|i| i
             .path
             .as_ref()
             .map(|p| p.contains("empty_subdir"))
             .unwrap_or(false)));
+    }
+
+    // ==================== glob_match tests ====================
+
+    #[test]
+    fn test_glob_match_extension() {
+        // Test *.ext pattern
+        assert!(glob_match("*.rs", "src/main.rs"));
+        assert!(glob_match("*.rs", "foo.rs"));
+        assert!(!glob_match("*.rs", "src/main.py"));
+        assert!(!glob_match("*.rs", "rsx"));
+    }
+
+    #[test]
+    fn test_glob_match_directory_wildcard() {
+        // Test dir/* pattern
+        assert!(glob_match("vendor/*", "vendor/package"));
+        assert!(glob_match("vendor/*", "vendor/a/b/c"));
+        assert!(!glob_match("vendor/*", "src/vendor"));
+    }
+
+    #[test]
+    fn test_glob_match_generic_wildcard() {
+        // Test patterns with * in the middle
+        assert!(glob_match("*_test.rs", "foo_test.rs"));
+        assert!(glob_match("test_*", "test_foo.rs"));
+        assert!(glob_match("*test*", "my_test_file.rs"));
+    }
+
+    #[test]
+    fn test_glob_match_exact() {
+        // Test exact match
+        assert!(glob_match("README.md", "README.md"));
+        assert!(glob_match("README.md", "docs/README.md")); // contains
+        assert!(!glob_match("README.md", "readme.md")); // case sensitive
+    }
+
+    #[test]
+    fn test_glob_match_contains() {
+        // Test simple contains pattern
+        assert!(glob_match("test", "src/test/main.rs"));
+        assert!(glob_match("test", "test.rs"));
+        assert!(!glob_match("test", "spec.rs"));
+    }
+
+    // ==================== include/exclude tests ====================
+
+    #[test]
+    fn test_scan_with_include_glob() {
+        let temp = tempdir().unwrap();
+        File::create(temp.path().join("main.rs")).unwrap();
+        File::create(temp.path().join("lib.rs")).unwrap();
+        File::create(temp.path().join("readme.md")).unwrap();
+
+        let options = ScanOptions {
+            file_type: Some("file".to_string()),
+            ignore: true,
+            include: vec!["*.rs".to_string()],
+            ..Default::default()
+        };
+        let result = scan_files(temp.path(), &options).unwrap();
+
+        // Should only include .rs files
+        assert_eq!(result.len(), 2);
+        assert!(result.items.iter().all(|i| i
+            .path
+            .as_ref()
+            .map(|p| p.ends_with(".rs"))
+            .unwrap_or(false)));
+    }
+
+    #[test]
+    fn test_scan_with_exclude_glob() {
+        let temp = tempdir().unwrap();
+        File::create(temp.path().join("main.rs")).unwrap();
+        File::create(temp.path().join("main_test.rs")).unwrap();
+        File::create(temp.path().join("lib.rs")).unwrap();
+
+        let options = ScanOptions {
+            file_type: Some("file".to_string()),
+            ignore: true,
+            exclude: vec!["*_test.rs".to_string()],
+            ..Default::default()
+        };
+        let result = scan_files(temp.path(), &options).unwrap();
+
+        // Should exclude _test.rs files
+        assert_eq!(result.len(), 2);
+        assert!(result.items.iter().all(|i| i
+            .path
+            .as_ref()
+            .map(|p| !p.contains("_test"))
+            .unwrap_or(false)));
+    }
+
+    #[test]
+    fn test_scan_with_include_and_exclude() {
+        let temp = tempdir().unwrap();
+        File::create(temp.path().join("main.rs")).unwrap();
+        File::create(temp.path().join("main_test.rs")).unwrap();
+        File::create(temp.path().join("readme.md")).unwrap();
+
+        let options = ScanOptions {
+            file_type: Some("file".to_string()),
+            ignore: true,
+            include: vec!["*.rs".to_string()],
+            exclude: vec!["*_test.rs".to_string()],
+            ..Default::default()
+        };
+        let result = scan_files(temp.path(), &options).unwrap();
+
+        // Should include .rs but exclude _test.rs
+        assert_eq!(result.len(), 1);
+        let path = result.items[0].path.as_ref().unwrap();
+        assert!(path.ends_with("main.rs"));
+    }
+
+    #[test]
+    fn test_scan_with_multiple_include_patterns() {
+        let temp = tempdir().unwrap();
+        File::create(temp.path().join("main.rs")).unwrap();
+        File::create(temp.path().join("lib.py")).unwrap();
+        File::create(temp.path().join("readme.md")).unwrap();
+
+        let options = ScanOptions {
+            file_type: Some("file".to_string()),
+            ignore: true,
+            include: vec!["*.rs".to_string(), "*.py".to_string()],
+            ..Default::default()
+        };
+        let result = scan_files(temp.path(), &options).unwrap();
+
+        // Should include both .rs and .py files
+        assert_eq!(result.len(), 2);
     }
 }

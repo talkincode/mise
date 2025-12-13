@@ -10,7 +10,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::anchors::parse::parse_file;
-use crate::backends::scan::scan_files;
+use crate::backends::scan::{scan_files, ScanOptions};
 use crate::core::model::{Confidence, Kind, ResultItem, ResultSet, SourceMode};
 use crate::core::render::{RenderConfig, Renderer};
 use crate::core::tokenizer::{count_tokens, TokenModel};
@@ -122,7 +122,13 @@ pub fn calculate_project_stats(
 
     let files = if scope.is_some() {
         // If scope is specified, do a direct scan
-        scan_files(root, scope, None, false, true, Some("file"))?
+        let options = ScanOptions {
+            scope: scope.map(|p| p.to_path_buf()),
+            file_type: Some("file".to_string()),
+            ignore: true,
+            ..Default::default()
+        };
+        scan_files(root, &options)?
     } else {
         // Use cached files when no scope
         get_files_cached(root)?
@@ -284,23 +290,6 @@ impl std::str::FromStr for StatsFormat {
             _ => Err(format!("Unknown stats format: {}", s)),
         }
     }
-}
-
-/// Public API for MCP: calculate stats and return as JSON
-pub fn stats_to_result(
-    root: &Path,
-    scope: Option<&Path>,
-    extensions: Option<Vec<String>>,
-    top_n: usize,
-    token_model: TokenModel,
-) -> Result<serde_json::Value> {
-    let ext_refs: Option<Vec<&str>> = extensions
-        .as_ref()
-        .map(|v| v.iter().map(|s| s.as_str()).collect());
-    let ext_slice: Option<&[&str]> = ext_refs.as_deref();
-
-    let stats = calculate_project_stats(root, scope, ext_slice, top_n, token_model)?;
-    Ok(serde_json::to_value(stats)?)
 }
 
 /// Run the stats command

@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::anchors::parse::{parse_content, Anchor};
-use crate::backends::scan::scan_files;
+use crate::backends::scan::{scan_files, ScanOptions};
 use crate::core::model::{Confidence, Kind, MiseError, ResultItem, ResultSet, SourceMode};
 use crate::core::render::{RenderConfig, Renderer};
 
@@ -94,10 +94,7 @@ fn process_file(root: &Path, path: &str) -> Option<FileProcessResult> {
     let read_result = read_file_safe(&full_path);
 
     // If file was skipped (binary, encoding issues, etc.), return None
-    let content = match read_result.content {
-        Some(c) => c,
-        None => return None,
-    };
+    let content = read_result.content?;
 
     let mut issues = Vec::new();
 
@@ -154,7 +151,12 @@ pub fn lint_anchors(root: &Path) -> Result<Vec<LintIssue>> {
     let mut all_anchors: HashMap<String, Vec<Anchor>> = HashMap::new();
 
     // Scan all files
-    let files = scan_files(root, None, None, false, true, Some("file"))?;
+    let options = ScanOptions {
+        file_type: Some("file".to_string()),
+        ignore: true,
+        ..Default::default()
+    };
+    let files = scan_files(root, &options)?;
 
     // Collect file paths for processing
     let paths: Vec<String> = files

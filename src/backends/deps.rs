@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::backends::ast_grep::get_ast_grep_command;
-use crate::backends::scan::scan_files;
+use crate::backends::scan::{scan_files, ScanOptions};
 use crate::core::model::{Confidence, Kind, MiseError, ResultItem, ResultSet, SourceMode};
 use crate::core::paths::{make_relative, normalize_path};
 use crate::core::render::{RenderConfig, Renderer};
@@ -708,7 +708,17 @@ pub fn analyze_file(root: &Path, file_path: &Path) -> Result<FileDeps> {
 /// Analyze dependencies for all files in scope
 pub fn analyze_deps(root: &Path, scope: Option<&Path>) -> Result<DepGraph> {
     let scan_root = scope.unwrap_or(root);
-    let file_results = scan_files(scan_root, None, None, false, true, Some("file"))?;
+    let options = ScanOptions {
+        scope: if scope.is_some() {
+            Some(scan_root.to_path_buf())
+        } else {
+            None
+        },
+        file_type: Some("file".to_string()),
+        ignore: true,
+        ..Default::default()
+    };
+    let file_results = scan_files(root, &options)?;
 
     let mut graph = DepGraph::new();
 
@@ -1035,38 +1045,6 @@ fn deps_to_result_set(
 
     result_set.sort();
     result_set
-}
-
-/// Public API for MCP: analyze deps and return ResultSet
-pub fn deps_to_result_set_public(
-    root: &Path,
-    file: Option<&Path>,
-    reverse: bool,
-) -> Result<ResultSet> {
-    // Check if ast-grep is available
-    if get_ast_grep_command().is_none() && !command_exists("rg") {
-        let mut result_set = ResultSet::new();
-        result_set.push(ResultItem::error(MiseError::new(
-            "DEPS_TOOL_NOT_FOUND",
-            "Neither ast-grep (sg) nor ripgrep (rg) is installed. Please install at least one.",
-        )));
-        return Ok(result_set);
-    }
-
-    // Analyze dependencies
-    let graph = analyze_deps(root, None)?;
-
-    // Convert file path to relative string
-    let file_str = file.map(|f| {
-        if f.is_absolute() {
-            make_relative(f, root).unwrap_or_else(|| normalize_path(f))
-        } else {
-            normalize_path(f)
-        }
-    });
-
-    let cycles = graph.find_cycles();
-    Ok(deps_to_result_set(&graph, file_str.as_deref(), reverse, &cycles))
 }
 
 /// Run the deps command

@@ -113,7 +113,8 @@ Use this when you need a reliable file/dir inventory to feed into other tools or
 Examples:\n\
   mise scan --type file\n\
   mise scan --type dir --max-depth 2\n\
-  mise scan --scope src --hidden --no-ignore\n"
+  mise scan --scope src --hidden --no-ignore\n\
+  mise scan --include '*.rs' --exclude 'tests/*'\n"
     )]
     Scan {
         /// Limit scanning to a subdirectory under ROOT.
@@ -160,6 +161,28 @@ Allowed values: file, dir.\n\n\
 If omitted, both files and directories may be returned."
         )]
         r#type: Option<String>,
+
+        /// Include files matching glob pattern (can be repeated).
+        #[arg(
+            short = 'g',
+            long,
+            value_name = "GLOB",
+            num_args = 1..,
+            long_help = "Include only files matching the given glob pattern.\n\n\
+Examples: --include '*.rs' --include '*.py'"
+        )]
+        include: Vec<String>,
+
+        /// Exclude files matching glob pattern (can be repeated).
+        #[arg(
+            short = 'G',
+            long,
+            value_name = "GLOB",
+            num_args = 1..,
+            long_help = "Exclude files matching the given glob pattern.\n\n\
+Examples: --exclude 'tests/*' --exclude '*.bak'"
+        )]
+        exclude: Vec<String>,
     },
 
     /// Find files by substring match (built on top of scan).
@@ -242,6 +265,11 @@ If no SCOPE is provided, the search runs under ROOT.
 Examples:
     mise match "TODO|FIXME"
     mise match "unsafe" src tests
+    mise match "unwrap()" src --include "*.rs"
+    mise match "TODO" --exclude "*_test.go"
+    mise match "error" -C 2          # Show 2 lines of context
+    mise match "TODO" --count         # Count matches only
+    mise match "fn" -m 10             # Limit to 10 matches
 "#
     )]
     Match {
@@ -252,6 +280,77 @@ Examples:
         /// Optional scope paths (relative to ROOT unless absolute).
         #[arg(value_name = "SCOPE", num_args = 0..)]
         scope: Vec<PathBuf>,
+
+        /// Include files matching glob pattern (can be repeated).
+        #[arg(
+            short = 'g',
+            long,
+            value_name = "GLOB",
+            num_args = 1..,
+            long_help = "Include only files matching the given glob pattern.\n\n\
+Examples: --include '*.rs' --include '*.py'\n\
+Note: Patterns are passed directly to ripgrep's --glob option."
+        )]
+        include: Vec<String>,
+
+        /// Exclude files matching glob pattern (can be repeated).
+        #[arg(
+            short = 'G',
+            long,
+            value_name = "GLOB",
+            num_args = 1..,
+            long_help = "Exclude files matching the given glob pattern.\n\n\
+Examples: --exclude '*_test.go' --exclude 'vendor/*'\n\
+Note: Patterns are negated and passed to ripgrep's --glob option."
+        )]
+        exclude: Vec<String>,
+
+        /// Show N lines of context before and after each match.
+        #[arg(
+            short = 'C',
+            long,
+            value_name = "N",
+            long_help = "Show N lines of context before and after each match.\n\n\
+Similar to grep -C. The context lines are included in the excerpt."
+        )]
+        context: Option<usize>,
+
+        /// Only print the count of matching lines.
+        #[arg(
+            short = 'c',
+            long,
+            long_help = "Only print the count of matching lines instead of the matches.\n\n\
+Outputs a single result item with the total count."
+        )]
+        count: bool,
+
+        /// Stop searching after N matches.
+        #[arg(
+            short = 'm',
+            long,
+            value_name = "N",
+            long_help = "Stop searching after N matches.\n\n\
+Useful to quickly sample matches without processing the entire codebase."
+        )]
+        max_count: Option<usize>,
+
+        /// Search case-insensitively.
+        #[arg(
+            short = 'i',
+            long,
+            long_help = "Search case-insensitively.\n\n\
+By default, ripgrep is case-sensitive. This flag makes it case-insensitive."
+        )]
+        ignore_case: bool,
+
+        /// Match only whole words.
+        #[arg(
+            short = 'w',
+            long,
+            long_help = "Only show matches surrounded by word boundaries.\n\n\
+This is equivalent to putting \\b before and after the pattern."
+        )]
+        word_regexp: bool,
     },
 
     /// Structural code search using ast-grep (sg/ast-grep).
@@ -264,6 +363,8 @@ If no SCOPE is provided, the search runs under ROOT.
 Examples:
     mise ast "console.log($A)" src
     mise ast "unsafe { $A }"
+    mise ast "fn $NAME($$$)" --lang rust
+    mise ast "import $A from $B" --include "*.ts"
 "#
     )]
     Ast {
@@ -274,6 +375,39 @@ Examples:
         /// Optional scope paths (relative to ROOT unless absolute).
         #[arg(value_name = "SCOPE", num_args = 0..)]
         scope: Vec<PathBuf>,
+
+        /// Include files matching glob pattern (can be repeated).
+        #[arg(
+            short = 'g',
+            long,
+            value_name = "GLOB",
+            num_args = 1..,
+            long_help = "Include only files matching the given glob pattern.\n\n\
+Examples: --include '*.rs' --include '*.ts'"
+        )]
+        include: Vec<String>,
+
+        /// Exclude files matching glob pattern (can be repeated).
+        #[arg(
+            short = 'G',
+            long,
+            value_name = "GLOB",
+            num_args = 1..,
+            long_help = "Exclude files matching the given glob pattern.\n\n\
+Examples: --exclude '*_test.go' --exclude 'vendor/*'"
+        )]
+        exclude: Vec<String>,
+
+        /// Specify the language for the search.
+        #[arg(
+            short = 'l',
+            long,
+            value_name = "LANG",
+            long_help = "Specify the language for ast-grep.\n\n\
+Supported: rust, python, javascript, typescript, go, java, c, cpp, etc.\n\
+If not specified, ast-grep will auto-detect based on file extension."
+        )]
+        lang: Option<String>,
     },
 
     /// Analyze code dependencies (imports/requires/use statements).
@@ -931,15 +1065,20 @@ pub fn run(cli: Cli) -> Result<()> {
             hidden,
             no_ignore,
             r#type,
-        } => crate::backends::scan::run_scan(
-            &root,
-            scope.as_deref(),
-            max_depth,
-            hidden,
-            !no_ignore,
-            r#type.as_deref(),
-            render_config,
-        ),
+            include,
+            exclude,
+        } => {
+            let options = crate::backends::scan::ScanOptions {
+                scope,
+                max_depth,
+                hidden,
+                ignore: !no_ignore,
+                file_type: r#type,
+                include,
+                exclude,
+            };
+            crate::backends::scan::run_scan(&root, options, render_config)
+        }
 
         Commands::Find { pattern, scope } => crate::backends::scan::run_find(
             &root,
@@ -970,17 +1109,17 @@ pub fn run(cli: Cli) -> Result<()> {
                 tags,
                 version,
                 dry_run,
-            } => crate::anchors::mark::run_mark(
-                &root,
-                &file,
-                start,
-                end,
-                &id,
-                tags,
-                version,
-                dry_run,
-                render_config,
-            ),
+            } => {
+                let spec = crate::anchors::mark::MarkSpec {
+                    path: file,
+                    start_line: start,
+                    end_line: end,
+                    id,
+                    tags,
+                    version,
+                };
+                crate::anchors::mark::run_mark(&root, &spec, dry_run, render_config)
+            }
             AnchorCommands::Batch {
                 json,
                 file,
@@ -1004,12 +1143,42 @@ pub fn run(cli: Cli) -> Result<()> {
             }
         },
 
-        Commands::Match { pattern, scope } => {
-            crate::backends::rg::run_match(&root, &pattern, &scope, render_config)
+        Commands::Match {
+            pattern,
+            scope,
+            include,
+            exclude,
+            context,
+            count,
+            max_count,
+            ignore_case,
+            word_regexp,
+        } => {
+            let options = crate::backends::rg::MatchOptions {
+                include,
+                exclude,
+                context,
+                count,
+                max_count,
+                ignore_case,
+                word_regexp,
+            };
+            crate::backends::rg::run_match(&root, &pattern, &scope, options, render_config)
         }
 
-        Commands::Ast { pattern, scope } => {
-            crate::backends::ast_grep::run_ast(&root, &pattern, &scope, render_config)
+        Commands::Ast {
+            pattern,
+            scope,
+            include,
+            exclude,
+            lang,
+        } => {
+            let options = crate::backends::ast_grep::AstOptions {
+                include,
+                exclude,
+                lang,
+            };
+            crate::backends::ast_grep::run_ast(&root, &pattern, &scope, options, render_config)
         }
 
         Commands::Deps {
@@ -1063,16 +1232,14 @@ pub fn run(cli: Cli) -> Result<()> {
                 let pack_priority: crate::flows::pack::PackPriority =
                     priority.parse().unwrap_or_default();
                 let token_model: TokenModel = model.parse().unwrap_or_default();
-                crate::flows::pack::run_pack(
-                    &root,
+                let opts = crate::flows::pack::PackOptions {
                     anchors,
                     files,
                     max_tokens,
-                    pack_priority,
-                    stats,
+                    priority: pack_priority,
                     token_model,
-                    render_config,
-                )
+                };
+                crate::flows::pack::run_pack(&root, opts, stats, render_config)
             }
             FlowCommands::Stats {
                 scope,
