@@ -1,175 +1,115 @@
 # mise Copilot Instructions
 
-mise 是一个本地上下文准备工具，用于将项目中的文件、片段和锚点整理成 Agent 可直接消费的上下文候选集合。**它不生成答案，只负责把材料摆好。**
+mise 是一个**命令行上下文准备工具**，将项目中的文件、片段和锚点整理成 Agent 可直接消费的结构化输出。**它只负责读取和组织材料，不生成答案。**
 
-## 🚀 mise 会话初始化（重要！）
+> **重要**: mise 安装在 `~/bin/mise`，所有命令通过 `run_in_terminal` 执行。
 
-**每次开始新对话或切换项目时，必须先执行初始化：**
+## 🚀 会话初始化（每次新对话必做）
 
 ```bash
-# 1. 检查 mise 是否可用，确认外部依赖状态
+# 1. 检查工具链完整性
 mise doctor
 
-# 2. 重建缓存索引（首次或文件有变动时）
+# 2. 重建缓存（首次进入或文件有变动时）
 mise rebuild
 
-# 3. 快速了解项目结构
+# 3. 了解项目结构
 mise scan --type file --max-depth 2 --pretty
 
-# 4. 查看已有的锚点标记
+# 4. 查看已标记的锚点
 mise anchor list --pretty
 ```
 
-### 何时触发 rebuild？
+### rebuild 触发时机
 
-| 触发条件             | 操作           |
-| -------------------- | -------------- |
-| 首次进入项目         | `mise rebuild` |
-| 大量文件改动后       | `mise rebuild` |
-| 新增/删除文件后      | `mise rebuild` |
-| 锚点查询结果不符预期 | `mise rebuild` |
-| `.mise/` 目录被删除  | `mise rebuild` |
+- 首次进入项目
+- 大量文件增删改后
+- 锚点查询结果不符预期
+- `.mise/` 目录被删除
 
-> **提示**: 如果启用了 watch 功能，可以 `mise watch` 自动监听文件变动并重建缓存。
+## 🎯 何时使用 mise
 
-## 🎯 何时使用 mise（优先级指南）
+### ✅ 优先使用 mise
 
-mise 已安装在 `~/bin/mise`，在以下场景**优先使用 mise** 而非原生工具：
-
-### ✅ 强烈推荐使用 mise
-
-| 场景           | mise 命令                            | 优势                            | 替代方案                       |
-| -------------- | ------------------------------------ | ------------------------------- | ------------------------------ |
-| 查看项目结构   | `mise scan --type file`              | 结构化输出，自动过滤 .gitignore | `list_dir` 需要递归调用        |
-| 提取文件片段   | `mise extract file.rs --lines 10:50` | 精确范围，避免全文喷出          | `read_file` 可用但无截断控制   |
-| 搜索代码模式   | `mise match "pattern" src/`          | JSON 输出，含行号和上下文       | `grep_search` 可用             |
-| 查看已标记区域 | `mise anchor list`                   | 快速定位语义边界                | 无替代                         |
-| 批量标记代码   | `mise anchor batch --json '[...]'`   | Agent 友好的批量操作            | 无替代                         |
-| 分析变更影响   | `mise impact --staged`               | 结合依赖图分析                  | `get_changed_files` 仅列出文件 |
-| 依赖分析       | `mise deps src/cli.rs`               | 正向/反向依赖，多种可视化格式   | 无替代                         |
-| 上下文打包     | `mise flow pack --anchors a,b`       | Token 预算控制                  | 无替代                         |
-| 项目统计       | `mise flow stats`                    | 字符/词/CJK/Token 计数          | 无替代                         |
-
-### ⚠️ 视情况使用
-
-| 场景                     | 建议                               |
-| ------------------------ | ---------------------------------- |
-| 简单文件读取（< 100 行） | 可用 `read_file`，mise 无明显优势  |
-| 单次 grep 查找           | `mise match` 或 `grep_search` 均可 |
-| 复杂 AST 查询            | `mise ast` 需要 ast-grep 安装      |
-| 已知确切文件路径         | `read_file` 更直接                 |
+| 场景       | 命令                                             | 优势                            |
+| ---------- | ------------------------------------------------ | ------------------------------- |
+| 项目结构   | `mise scan --type file --max-depth 3 --pretty`   | 结构化输出，自动过滤 .gitignore |
+| 提取片段   | `mise extract file.rs --lines 10:50`             | 精确范围，Token 可控            |
+| 搜索代码   | `mise match "pattern" src/ --pretty`             | JSON 输出含行号上下文           |
+| 锚点管理   | `mise anchor list/get/mark`                      | 语义标记，无替代方案            |
+| 依赖分析   | `mise deps src/cli.rs --deps-format tree`        | 正向/反向依赖可视化             |
+| 变更影响   | `mise impact --staged --impact-format summary`   | 结合依赖图分析                  |
+| 上下文打包 | `mise flow pack --anchors a,b --max-tokens 4000` | Token 预算控制                  |
+| 项目统计   | `mise flow stats --stats-format summary`         | 字符/词/Token 计数              |
 
 ### ❌ 不适合 mise
 
-| 场景       | 原因                                    | 应使用                   |
-| ---------- | --------------------------------------- | ------------------------ |
-| 编辑文件   | mise 只读取，不修改（anchor mark 除外） | `replace_string_in_file` |
-| 运行命令   | mise 不执行任意命令                     | `run_in_terminal`        |
-| 语义理解   | mise 不做 AI 推理                       | 直接分析                 |
-| 创建新文件 | mise 不创建文件                         | `create_file`            |
+| 场景     | 原因                | 应使用                   |
+| -------- | ------------------- | ------------------------ |
+| 编辑文件 | mise 只读取         | `replace_string_in_file` |
+| 运行命令 | mise 不执行任意命令 | `run_in_terminal`        |
+| 创建文件 | mise 不创建文件     | `create_file`            |
+| 简单读取 | < 100 行时无优势    | `read_file`              |
 
-## 📋 常用命令速查
+## 📋 命令速查
 
 ```bash
-# === 初始化与诊断 ===
-mise doctor                    # 检查外部依赖状态
-mise rebuild                   # 重建缓存索引
+# 诊断
+mise doctor                              # 检查依赖状态
+mise rebuild                             # 重建缓存
 
-# === 项目探索 ===
-mise scan --type file --max-depth 2 --pretty  # 项目结构
-mise find "readme"                             # 按名称查找文件
-mise match "TODO|FIXME" --pretty               # 搜索代码模式
-mise ast "fn main" src/                        # AST 结构搜索
+# 探索
+mise scan --type file --max-depth 2 --pretty
+mise find "readme"                       # 按名称查找
+mise match "TODO|FIXME" --pretty         # 搜索模式
+mise ast "fn main" src/                  # AST 搜索
 
-# === 精确提取 ===
-mise extract src/main.rs --lines 1:100         # 提取指定行范围
+# 提取
+mise extract src/main.rs --lines 1:100   # 提取行范围
 
-# === 锚点管理 ===
-mise anchor list --pretty                      # 列出所有锚点
-mise anchor list --tag core                    # 按标签过滤
-mise anchor get intro --with-neighbors 3       # 获取锚点及相关内容
-mise anchor lint                               # 检查锚点问题
-
-# === 锚点标记（Agent 常用）===
+# 锚点
+mise anchor list --pretty                # 列出锚点
+mise anchor list --tag core              # 按标签过滤
+mise anchor get intro --with-neighbors 3 # 获取锚点+上下文
+mise anchor lint                         # 检查问题
 mise anchor mark src/cli.rs --start 10 --end 50 --id cli.commands --tags core
-mise anchor batch --json '[{"path":"a.md","start_line":1,"end_line":10,"id":"intro"}]'
 mise anchor unmark src/cli.rs --id cli.commands
 
-# === 依赖分析 ===
-mise deps src/cli.rs                           # 正向依赖
-mise deps src/cli.rs --reverse                 # 反向依赖（谁依赖它）
-mise deps --deps-format tree                   # 树形视图
-mise deps --deps-format mermaid                # Mermaid 图
+# 依赖
+mise deps src/cli.rs                     # 正向依赖
+mise deps src/cli.rs --reverse           # 反向依赖
+mise deps --deps-format tree             # 树形视图
 
-# === 变更影响 ===
-mise impact                                    # 未暂存变更
-mise impact --staged                           # 已暂存变更
-mise impact --diff main..feature               # 分支对比
-mise impact --impact-format summary            # 人类可读摘要
+# 变更
+mise impact                              # 未暂存变更
+mise impact --staged                     # 已暂存变更
+mise impact --impact-format summary      # 人类可读
 
-# === 工作流 ===
-mise flow pack --anchors a,b --max-tokens 4000 # 上下文打包
-mise flow stats --stats-format summary         # 项目统计
-mise flow outline --tag chapter                # 文档大纲
-mise flow writing --anchor intro               # 写作上下文
-
-# === 文件监听（可选）===
-mise watch                                     # 监听变动并自动 rebuild
-mise watch --cmd "mise anchor lint"            # 自定义监听命令
+# 工作流
+mise flow stats --stats-format summary   # 项目统计
+mise flow outline --outline-format markdown
+mise flow pack --anchors a,b --max-tokens 4000
 ```
 
 ## 🔄 典型工作流
 
-### 工作流 1：会话初始化
-
+### 代码探索
 ```bash
-# 每次新对话，先执行这些命令建立上下文
-mise doctor                              # 确认工具链完整
-mise rebuild                             # 重建索引
-mise scan --type file --max-depth 2      # 了解项目结构
-mise anchor list                         # 查看已有标记
+mise scan --type file --max-depth 3 --pretty   # 结构
+mise match "fn main|async fn" src/ --pretty    # 找入口
+mise deps src/main.rs --deps-format tree       # 依赖
 ```
 
-### 工作流 2：代码探索
-
+### PR 审查
 ```bash
-mise scan --type file --max-depth 3      # 了解结构
-mise match "fn main|async fn" src/       # 找入口点
-mise deps src/main.rs --deps-format tree # 分析依赖
-mise anchor list                         # 查看标记区域
+mise impact --staged --impact-format summary   # 变更影响
+mise deps changed_file.rs --reverse            # 谁依赖它
 ```
 
-### 工作流 3：代码审查 / PR 分析
-
+### 上下文打包
 ```bash
-mise impact --staged --impact-format summary    # 变更影响摘要
-mise deps changed_file.rs --reverse             # 谁依赖改动的文件
-mise flow pack --anchors affected.module        # 打包相关上下文
-```
-
-### 工作流 4：为 AI 准备上下文
-
-```bash
-mise flow pack --anchors core.model,cli.entry --max-tokens 4000
+mise flow pack --anchors core,cli --max-tokens 4000
 mise flow stats --stats-format summary
-mise flow outline --outline-format markdown
-```
-
-### 工作流 5：长期维护标记
-
-```bash
-# 标记核心模块
-mise anchor mark src/core/model.rs --start 1 --end 100 --id core.model --tags core,data
-mise anchor mark src/cli.rs --start 500 --end 600 --id cli.commands --tags cli,entry
-
-# 批量标记
-mise anchor batch --json '[
-  {"path": "src/main.rs", "start_line": 1, "end_line": 30, "id": "main.entry", "tags": ["entry"]},
-  {"path": "src/lib.rs", "start_line": 1, "end_line": 50, "id": "lib.exports", "tags": ["api"]}
-]'
-
-# 验证
-mise anchor lint
 ```
 
 ## 📁 架构概览
