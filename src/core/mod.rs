@@ -5,7 +5,9 @@
 //! - Rendering functions for different output formats
 //! - Path normalization utilities
 //! - Common utilities
+//! - File reading strategies
 
+pub mod file_reader;
 pub mod model;
 pub mod paths;
 pub mod render;

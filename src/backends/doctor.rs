@@ -57,6 +57,7 @@ impl DependencyStatus {
             path: None,
             range: None,
             excerpt: Some(message),
+            data: None,
             confidence: if self.available || self.required {
                 Confidence::High
             } else {

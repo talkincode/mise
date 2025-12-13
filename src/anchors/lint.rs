@@ -59,6 +59,7 @@ impl LintIssue {
             path: Some(self.path.clone()),
             range: self.line.map(|l| crate::core::model::Range::lines(l, l)),
             excerpt: Some(self.message.clone()),
+            data: None,
             confidence: match self.severity {
                 LintSeverity::Error => Confidence::High,
                 LintSeverity::Warning => Confidence::Medium,
@@ -73,6 +74,80 @@ impl LintIssue {
 /// Maximum recommended anchor size (in lines)
 const MAX_ANCHOR_LINES: u32 = 500;
 
+/// Result from processing a single file
+struct FileProcessResult {
+    issues: Vec<LintIssue>,
+    anchors: Vec<Anchor>,
+}
+
+/// Process a single file for anchor linting
+fn process_file(root: &Path, path: &str) -> Option<FileProcessResult> {
+    use crate::core::file_reader::read_file_safe;
+
+    let full_path = root.join(path);
+
+    // Only check text files that might contain anchors
+    if !is_text_file(&full_path) {
+        return None;
+    }
+
+    let read_result = read_file_safe(&full_path);
+
+    // If file was skipped (binary, encoding issues, etc.), return None
+    let content = match read_result.content {
+        Some(c) => c,
+        None => return None,
+    };
+
+    let mut issues = Vec::new();
+
+    // Add warnings from file reading as lint issues
+    for warning in read_result.warnings {
+        issues.push(LintIssue::warning(
+            warning.code.as_str(),
+            &warning.message,
+            path,
+            None,
+        ));
+    }
+
+    // Check for unpaired markers
+    issues.extend(check_pairing(&content, path));
+
+    // Parse anchors
+    let anchors = parse_content(&content, path);
+
+    for anchor in &anchors {
+        // Check for empty/oversized content (use content lines, not marker lines)
+        let content_lines: u32 = anchor
+            .content
+            .as_ref()
+            .map(|c| c.lines().count() as u32)
+            .unwrap_or(0);
+
+        if content_lines == 0 {
+            issues.push(LintIssue::warning(
+                "EMPTY_ANCHOR",
+                &format!("Anchor '{}' has empty content", anchor.id),
+                path,
+                Some(anchor.range.start),
+            ));
+        } else if content_lines > MAX_ANCHOR_LINES {
+            issues.push(LintIssue::warning(
+                "LARGE_ANCHOR",
+                &format!(
+                    "Anchor '{}' is very large ({} lines), consider splitting",
+                    anchor.id, content_lines
+                ),
+                path,
+                Some(anchor.range.start),
+            ));
+        }
+    }
+
+    Some(FileProcessResult { issues, anchors })
+}
+
 /// Lint all anchors in the workspace
 pub fn lint_anchors(root: &Path) -> Result<Vec<LintIssue>> {
     let mut issues = Vec::new();
@@ -81,59 +156,37 @@ pub fn lint_anchors(root: &Path) -> Result<Vec<LintIssue>> {
     // Scan all files
     let files = scan_files(root, None, None, false, true, Some("file"))?;
 
-    for item in files.items {
-        if let Some(path) = &item.path {
-            let full_path = root.join(path);
+    // Collect file paths for processing
+    let paths: Vec<String> = files
+        .items
+        .iter()
+        .filter_map(|item| item.path.clone())
+        .collect();
 
-            // Only check text files that might contain anchors
-            if !is_text_file(&full_path) {
-                continue;
-            }
+    // Process files (parallel or sequential based on feature)
+    #[cfg(feature = "parallel")]
+    let results: Vec<FileProcessResult> = {
+        use rayon::prelude::*;
+        paths
+            .par_iter()
+            .filter_map(|path| process_file(root, path))
+            .collect()
+    };
 
-            let content = match std::fs::read_to_string(&full_path) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
+    #[cfg(not(feature = "parallel"))]
+    let results: Vec<FileProcessResult> = paths
+        .iter()
+        .filter_map(|path| process_file(root, path))
+        .collect();
 
-            // Check for unpaired markers
-            issues.extend(check_pairing(&content, path));
-
-            // Parse anchors
-            let anchors = parse_content(&content, path);
-
-            for anchor in anchors {
-                // Check for empty/oversized content (use content lines, not marker lines)
-                let content_lines: u32 = anchor
-                    .content
-                    .as_ref()
-                    .map(|c| c.lines().count() as u32)
-                    .unwrap_or(0);
-
-                if content_lines == 0 {
-                    issues.push(LintIssue::warning(
-                        "EMPTY_ANCHOR",
-                        &format!("Anchor '{}' has empty content", anchor.id),
-                        path,
-                        Some(anchor.range.start),
-                    ));
-                } else if content_lines > MAX_ANCHOR_LINES {
-                    issues.push(LintIssue::warning(
-                        "LARGE_ANCHOR",
-                        &format!(
-                            "Anchor '{}' is very large ({} lines), consider splitting",
-                            anchor.id, content_lines
-                        ),
-                        path,
-                        Some(anchor.range.start),
-                    ));
-                }
-
-                // Collect for duplicate check
-                all_anchors
-                    .entry(anchor.id.clone())
-                    .or_default()
-                    .push(anchor);
-            }
+    // Aggregate results
+    for result in results {
+        issues.extend(result.issues);
+        for anchor in result.anchors {
+            all_anchors
+                .entry(anchor.id.clone())
+                .or_default()
+                .push(anchor);
         }
     }
 
@@ -156,13 +209,7 @@ pub fn lint_anchors(root: &Path) -> Result<Vec<LintIssue>> {
 
 /// Check for unpaired begin/end markers
 fn check_pairing(content: &str, path: &str) -> Vec<LintIssue> {
-    use regex::Regex;
-
-    // Keep marker parsing consistent with `anchors::parse` so IDs don't accidentally include `-->`.
-    let begin_re =
-        Regex::new(r#"<!--\s*Q:begin\s+id=([^\s]+)(?:\s+tags=[^\s]+)?(?:\s+v=\d+)?\s*-->"#)
-            .unwrap();
-    let end_re = Regex::new(r#"<!--\s*Q:end\s+id=([^\s]+)\s*-->"#).unwrap();
+    use crate::anchors::parse::{BEGIN_RE, END_RE};
 
     let mut issues = Vec::new();
     let mut open_ids: Vec<(String, u32)> = Vec::new();
@@ -170,7 +217,7 @@ fn check_pairing(content: &str, path: &str) -> Vec<LintIssue> {
     for (line_num, line) in content.lines().enumerate() {
         let line_num = line_num as u32 + 1;
 
-        if let Some(caps) = begin_re.captures(line) {
+        if let Some(caps) = BEGIN_RE.captures(line) {
             let id = caps
                 .get(1)
                 .map(|m| m.as_str().to_string())
@@ -178,7 +225,7 @@ fn check_pairing(content: &str, path: &str) -> Vec<LintIssue> {
             open_ids.push((id, line_num));
         }
 
-        if let Some(caps) = end_re.captures(line) {
+        if let Some(caps) = END_RE.captures(line) {
             let end_id = caps.get(1).map(|m| m.as_str()).unwrap_or("");
 
             if let Some(pos) = open_ids.iter().rposition(|(id, _)| id == end_id) {

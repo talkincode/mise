@@ -291,6 +291,7 @@ impl MarkResult {
                     .lines_affected
                     .map(|(start, end)| crate::core::model::Range::lines(start, end)),
                 excerpt: Some(format!("Anchor '{}' marked successfully", self.id)),
+                data: None,
                 confidence: Confidence::High,
                 source_mode: SourceMode::Anchor,
                 meta: Meta::default(),
@@ -303,6 +304,7 @@ impl MarkResult {
                 path: Some(self.path.clone()),
                 range: None,
                 excerpt: self.error.clone(),
+                data: None,
                 confidence: Confidence::Low,
                 source_mode: SourceMode::Anchor,
                 meta: Meta::default(),

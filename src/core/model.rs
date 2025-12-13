@@ -126,6 +126,11 @@ pub struct ResultItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub excerpt: Option<String>,
 
+    /// Structured data payload for commands like deps/impact
+    /// Allows direct embedding of structured data without JSON-in-string escaping
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<serde_json::Value>,
+
     /// Confidence level
     pub confidence: Confidence,
 
@@ -148,6 +153,7 @@ impl ResultItem {
             path: Some(path.into()),
             range: None,
             excerpt: None,
+            data: None,
             confidence: Confidence::High,
             source_mode: SourceMode::Scan,
             meta: Meta::default(),
@@ -162,6 +168,7 @@ impl ResultItem {
             path: Some(path.into()),
             range: Some(range),
             excerpt: Some(excerpt.into()),
+            data: None,
             confidence: Confidence::High,
             source_mode: SourceMode::Rg,
             meta: Meta::default(),
@@ -176,6 +183,7 @@ impl ResultItem {
             path: Some(path.into()),
             range: Some(range),
             excerpt: Some(excerpt.into()),
+            data: None,
             confidence: Confidence::High,
             source_mode: SourceMode::Scan,
             meta: Meta::default(),
@@ -190,6 +198,7 @@ impl ResultItem {
             path: Some(path.into()),
             range: Some(range),
             excerpt: None,
+            data: None,
             confidence: Confidence::High,
             source_mode: SourceMode::Anchor,
             meta: Meta::default(),
@@ -204,6 +213,7 @@ impl ResultItem {
             path: None,
             range: None,
             excerpt: None,
+            data: None,
             confidence: Confidence::High,
             source_mode: SourceMode::Scan,
             meta: Meta::default(),
@@ -228,6 +238,13 @@ impl ResultItem {
     #[allow(dead_code)]
     pub fn with_source_mode(mut self, source_mode: SourceMode) -> Self {
         self.source_mode = source_mode;
+        self
+    }
+
+    /// Set structured data payload
+    #[allow(dead_code)]
+    pub fn with_data(mut self, data: serde_json::Value) -> Self {
+        self.data = Some(data);
         self
     }
 
@@ -398,6 +415,31 @@ mod tests {
         let item =
             ResultItem::file("test.rs").with_error(MiseError::new("WARN", "Warning message"));
         assert_eq!(item.errors.len(), 1);
+    }
+
+    #[test]
+    fn test_result_item_with_data() {
+        let data = serde_json::json!({
+            "depends_on": ["a.rs", "b.rs"],
+            "language": "rust"
+        });
+        let item = ResultItem::file("test.rs").with_data(data.clone());
+        assert!(item.data.is_some());
+        assert_eq!(item.data.unwrap(), data);
+    }
+
+    #[test]
+    fn test_result_item_data_serialization() {
+        let data = serde_json::json!({
+            "deps": ["x.rs"],
+            "count": 42
+        });
+        let item = ResultItem::file("test.rs").with_data(data);
+        let json = serde_json::to_string(&item).unwrap();
+        // data field should be embedded directly, not as escaped string
+        assert!(json.contains("\"data\":{"));
+        assert!(json.contains("\"deps\":[\"x.rs\"]"));
+        assert!(json.contains("\"count\":42"));
     }
 
     #[test]
@@ -652,11 +694,12 @@ mod tests {
         let mut set = ResultSet::new();
 
         // Item without path
-        let mut item_none = ResultItem {
+        let item_none = ResultItem {
             kind: Kind::File,
             path: None,
             range: None,
             excerpt: None,
+            data: None,
             confidence: Confidence::High,
             source_mode: SourceMode::Scan,
             meta: Meta::default(),

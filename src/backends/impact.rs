@@ -342,7 +342,9 @@ fn impact_to_result_set(analysis: &ImpactAnalysis) -> ResultSet {
         item.kind = Kind::Flow;
         item.confidence = Confidence::High;
         item.source_mode = SourceMode::Scan;
-        item.excerpt = Some("changed".to_string());
+        item.data = Some(serde_json::json!({
+            "impact_type": "changed"
+        }));
         result_set.push(item);
     }
 
@@ -352,7 +354,9 @@ fn impact_to_result_set(analysis: &ImpactAnalysis) -> ResultSet {
         item.kind = Kind::Flow;
         item.confidence = Confidence::Medium;
         item.source_mode = SourceMode::Mixed;
-        item.excerpt = Some("direct_impact".to_string());
+        item.data = Some(serde_json::json!({
+            "impact_type": "direct_impact"
+        }));
         result_set.push(item);
     }
 
@@ -362,7 +366,9 @@ fn impact_to_result_set(analysis: &ImpactAnalysis) -> ResultSet {
         item.kind = Kind::Flow;
         item.confidence = Confidence::Low;
         item.source_mode = SourceMode::Mixed;
-        item.excerpt = Some("transitive_impact".to_string());
+        item.data = Some(serde_json::json!({
+            "impact_type": "transitive_impact"
+        }));
         result_set.push(item);
     }
 
@@ -801,25 +807,25 @@ mod tests {
         analysis.direct_impacts = vec!["direct.rs".to_string()];
         analysis.transitive_impacts = vec!["trans.rs".to_string()];
         analysis.anchors_affected = vec!["anchor1".to_string()];
-        
+
         let output = format_summary(&analysis);
         assert!(output.contains("test source"));
         // Check for the emoji markers instead of text headers
-        assert!(output.contains("🔴"));  // Changed files
-        assert!(output.contains("🟠"));  // Direct impacts
-        assert!(output.contains("🟡"));  // Transitive impacts  
-        assert!(output.contains("📌"));  // Affected anchors
+        assert!(output.contains("🔴")); // Changed files
+        assert!(output.contains("🟠")); // Direct impacts
+        assert!(output.contains("🟡")); // Transitive impacts
+        assert!(output.contains("📌")); // Affected anchors
     }
 
     #[test]
     fn test_impact_analysis_serialization() {
         let mut analysis = ImpactAnalysis::new("test");
         analysis.changed_files = vec!["a.rs".to_string()];
-        
+
         let json = serde_json::to_string(&analysis).unwrap();
         assert!(json.contains("changed_files"));
         assert!(json.contains("a.rs"));
-        
+
         let parsed: ImpactAnalysis = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.changed_files, analysis.changed_files);
     }

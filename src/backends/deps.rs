@@ -951,8 +951,33 @@ fn format_table(graph: &DepGraph) -> String {
 }
 
 /// Convert dependency analysis to ResultSet
-fn deps_to_result_set(graph: &DepGraph, file: Option<&str>, reverse: bool) -> ResultSet {
+fn deps_to_result_set(
+    graph: &DepGraph,
+    file: Option<&str>,
+    reverse: bool,
+    cycles: &[Vec<String>],
+) -> ResultSet {
     let mut result_set = ResultSet::new();
+
+    // Add circular dependency warnings to result set
+    for cycle in cycles {
+        let cycle_str = cycle.join(" -> ");
+        let mut warning_item = ResultItem::error(MiseError::new(
+            "CIRCULAR_DEPENDENCY",
+            format!("Circular dependency detected: {}", cycle_str),
+        ));
+        warning_item.confidence = Confidence::High;
+        warning_item.source_mode = SourceMode::AstGrep;
+        // Set path to first file in cycle for reference
+        if let Some(first) = cycle.first() {
+            warning_item.path = Some(first.clone());
+        }
+        warning_item.data = Some(serde_json::json!({
+            "cycle": cycle,
+            "cycle_length": cycle.len(),
+        }));
+        result_set.push(warning_item);
+    }
 
     if let Some(file_path) = file {
         // Single file mode
@@ -977,13 +1002,10 @@ fn deps_to_result_set(graph: &DepGraph, file: Option<&str>, reverse: bool) -> Re
             let mut item = ResultItem::file(file_path);
             item.kind = Kind::Flow; // Use Flow kind for deps
             item.source_mode = SourceMode::AstGrep;
-            item.excerpt = Some(
-                serde_json::json!({
-                    kind_str: deps,
-                    "language": file_deps.language,
-                })
-                .to_string(),
-            );
+            item.data = Some(serde_json::json!({
+                kind_str: deps,
+                "language": file_deps.language,
+            }));
 
             result_set.push(item);
         }
@@ -1001,14 +1023,11 @@ fn deps_to_result_set(graph: &DepGraph, file: Option<&str>, reverse: bool) -> Re
                 .filter_map(|d| d.resolved_path.clone())
                 .collect();
 
-            item.excerpt = Some(
-                serde_json::json!({
-                    "depends_on": forward_deps,
-                    "depended_by": file_deps.depended_by,
-                    "language": file_deps.language,
-                })
-                .to_string(),
-            );
+            item.data = Some(serde_json::json!({
+                "depends_on": forward_deps,
+                "depended_by": file_deps.depended_by,
+                "language": file_deps.language,
+            }));
 
             result_set.push(item);
         }
@@ -1054,12 +1073,6 @@ pub fn run_deps(
 
     // Check for circular dependencies
     let cycles = graph.find_cycles();
-    if !cycles.is_empty() {
-        eprintln!("Warning: Circular dependencies detected:");
-        for cycle in &cycles {
-            eprintln!("  {}", cycle.join(" -> "));
-        }
-    }
 
     // Output based on format
     let output = match format {
@@ -1069,16 +1082,20 @@ pub fn run_deps(
             if let Some(f) = &file_str {
                 format_tree(&graph, f, reverse)
             } else {
-                // Tree format requires a file
-                eprintln!(
-                    "Tree format requires a specific file. Use: mise deps <file> --format tree"
-                );
+                // Tree format requires a file - return as structured error
+                let mut result_set = ResultSet::new();
+                result_set.push(ResultItem::error(MiseError::new(
+                    "TREE_REQUIRES_FILE",
+                    "Tree format requires a specific file. Use: mise deps <file> --format tree",
+                )));
+                let renderer = Renderer::with_config(config);
+                println!("{}", renderer.render(&result_set));
                 return Ok(());
             }
         }
         DepsFormat::Table => format_table(&graph),
         DepsFormat::Jsonl | DepsFormat::Json => {
-            let result_set = deps_to_result_set(&graph, file_str.as_deref(), reverse);
+            let result_set = deps_to_result_set(&graph, file_str.as_deref(), reverse, &cycles);
             let renderer = Renderer::with_config(config);
             renderer.render(&result_set)
         }
@@ -1141,9 +1158,18 @@ mod tests {
 
     #[test]
     fn test_language_from_path_js_variants() {
-        assert_eq!(Language::from_path(Path::new("file.jsx")), Language::JavaScript);
-        assert_eq!(Language::from_path(Path::new("file.mjs")), Language::JavaScript);
-        assert_eq!(Language::from_path(Path::new("file.cjs")), Language::JavaScript);
+        assert_eq!(
+            Language::from_path(Path::new("file.jsx")),
+            Language::JavaScript
+        );
+        assert_eq!(
+            Language::from_path(Path::new("file.mjs")),
+            Language::JavaScript
+        );
+        assert_eq!(
+            Language::from_path(Path::new("file.cjs")),
+            Language::JavaScript
+        );
     }
 
     #[test]
@@ -1159,7 +1185,10 @@ mod tests {
     fn test_language_extensions() {
         assert_eq!(Language::Rust.extensions(), &["rs"]);
         assert_eq!(Language::TypeScript.extensions(), &["ts", "tsx"]);
-        assert_eq!(Language::JavaScript.extensions(), &["js", "jsx", "mjs", "cjs"]);
+        assert_eq!(
+            Language::JavaScript.extensions(),
+            &["js", "jsx", "mjs", "cjs"]
+        );
         assert_eq!(Language::Python.extensions(), &["py"]);
         assert_eq!(Language::Unknown.extensions(), &[] as &[&str]);
     }
@@ -1195,35 +1224,39 @@ mod tests {
     #[test]
     fn test_dep_graph_with_files() {
         let mut graph = DepGraph::new();
-        
-        graph.files.insert("main.rs".to_string(), FileDeps {
-            path: "main.rs".to_string(),
-            language: Language::Rust,
-            depends_on: vec![
-                Dependency {
+
+        graph.files.insert(
+            "main.rs".to_string(),
+            FileDeps {
+                path: "main.rs".to_string(),
+                language: Language::Rust,
+                depends_on: vec![Dependency {
                     import_text: "use lib".to_string(),
                     module: "lib".to_string(),
                     resolved_path: Some("lib.rs".to_string()),
                     line: 1,
-                }
-            ],
-            depended_by: vec![],
-        });
-        
-        graph.files.insert("lib.rs".to_string(), FileDeps {
-            path: "lib.rs".to_string(),
-            language: Language::Rust,
-            depends_on: vec![],
-            depended_by: vec![],
-        });
+                }],
+                depended_by: vec![],
+            },
+        );
+
+        graph.files.insert(
+            "lib.rs".to_string(),
+            FileDeps {
+                path: "lib.rs".to_string(),
+                language: Language::Rust,
+                depends_on: vec![],
+                depended_by: vec![],
+            },
+        );
 
         // Build reverse deps
         graph.build_reverse_deps();
-        
+
         // Check forward deps
         let forward = graph.get_forward_deps("main.rs");
         assert_eq!(forward, vec!["lib.rs".to_string()]);
-        
+
         // Check reverse deps
         let reverse = graph.get_reverse_deps("lib.rs");
         assert_eq!(reverse, vec!["main.rs".to_string()]);
@@ -1339,32 +1372,35 @@ mod tests {
     #[test]
     fn test_dep_graph_multiple_deps() {
         let mut graph = DepGraph::new();
-        
-        graph.files.insert("main.rs".to_string(), FileDeps {
-            path: "main.rs".to_string(),
-            language: Language::Rust,
-            depends_on: vec![
-                Dependency {
-                    import_text: "use a".to_string(),
-                    module: "a".to_string(),
-                    resolved_path: Some("a.rs".to_string()),
-                    line: 1,
-                },
-                Dependency {
-                    import_text: "use b".to_string(),
-                    module: "b".to_string(),
-                    resolved_path: Some("b.rs".to_string()),
-                    line: 2,
-                },
-                Dependency {
-                    import_text: "use a".to_string(),
-                    module: "a".to_string(),
-                    resolved_path: Some("a.rs".to_string()),  // duplicate
-                    line: 3,
-                },
-            ],
-            depended_by: vec![],
-        });
+
+        graph.files.insert(
+            "main.rs".to_string(),
+            FileDeps {
+                path: "main.rs".to_string(),
+                language: Language::Rust,
+                depends_on: vec![
+                    Dependency {
+                        import_text: "use a".to_string(),
+                        module: "a".to_string(),
+                        resolved_path: Some("a.rs".to_string()),
+                        line: 1,
+                    },
+                    Dependency {
+                        import_text: "use b".to_string(),
+                        module: "b".to_string(),
+                        resolved_path: Some("b.rs".to_string()),
+                        line: 2,
+                    },
+                    Dependency {
+                        import_text: "use a".to_string(),
+                        module: "a".to_string(),
+                        resolved_path: Some("a.rs".to_string()), // duplicate
+                        line: 3,
+                    },
+                ],
+                depended_by: vec![],
+            },
+        );
 
         let deps = graph.get_forward_deps("main.rs");
         // Should be deduplicated and sorted

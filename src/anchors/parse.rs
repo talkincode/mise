@@ -5,13 +5,26 @@
 //! ...content...
 //! <!--Q:end id=xxx-->
 
+use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::path::Path;
 
+use crate::core::file_reader::{read_file_safe, FileReadResult};
 use crate::core::model::{Meta, Range, RangeLine};
 use crate::core::util::{hash_bytes, HashAlgorithm};
+
+/// Static regex for parsing anchor begin markers
+/// Format: <!--Q:begin id=xxx tags=a,b v=1-->
+pub static BEGIN_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"<!--\s*Q:begin\s+id=([^\s]+)(?:\s+tags=([^\s]+))?(?:\s+v=(\d+))?\s*-->"#)
+        .expect("Invalid BEGIN_RE regex")
+});
+
+/// Static regex for parsing anchor end markers
+/// Format: <!--Q:end id=xxx-->
+pub static END_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"<!--\s*Q:end\s+id=([^\s]+)\s*-->"#).expect("Invalid END_RE regex"));
 
 /// Anchor definition
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,24 +61,39 @@ struct BeginMarker {
     line: u32,
 }
 
-/// Parse anchors from a file
-pub fn parse_file(path: &Path, relative_path: &str) -> Vec<Anchor> {
-    let content = match fs::read_to_string(path) {
-        Ok(c) => c,
-        Err(_) => return Vec::new(),
+/// Result of parsing a file for anchors
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct ParseFileResult {
+    /// Parsed anchors
+    pub anchors: Vec<Anchor>,
+    /// File read result with warnings
+    pub read_result: FileReadResult,
+}
+
+/// Parse anchors from a file with full result info
+#[allow(dead_code)]
+pub fn parse_file_with_result(path: &Path, relative_path: &str) -> ParseFileResult {
+    let read_result = read_file_safe(path);
+
+    let anchors = match &read_result.content {
+        Some(content) => parse_content(content, relative_path),
+        None => Vec::new(),
     };
 
-    parse_content(&content, relative_path)
+    ParseFileResult {
+        anchors,
+        read_result,
+    }
+}
+
+/// Parse anchors from a file (simple API, ignores warnings)
+pub fn parse_file(path: &Path, relative_path: &str) -> Vec<Anchor> {
+    parse_file_with_result(path, relative_path).anchors
 }
 
 /// Parse anchors from content string
 pub fn parse_content(content: &str, path: &str) -> Vec<Anchor> {
-    let begin_re =
-        Regex::new(r#"<!--\s*Q:begin\s+id=([^\s]+)(?:\s+tags=([^\s]+))?(?:\s+v=(\d+))?\s*-->"#)
-            .unwrap();
-
-    let end_re = Regex::new(r#"<!--\s*Q:end\s+id=([^\s]+)\s*-->"#).unwrap();
-
     let mut anchors = Vec::new();
     let mut open_markers: Vec<BeginMarker> = Vec::new();
     let lines: Vec<&str> = content.lines().collect();
@@ -74,7 +102,7 @@ pub fn parse_content(content: &str, path: &str) -> Vec<Anchor> {
         let line_num = line_num as u32 + 1; // 1-indexed
 
         // Check for begin marker
-        if let Some(caps) = begin_re.captures(line) {
+        if let Some(caps) = BEGIN_RE.captures(line) {
             let id = caps
                 .get(1)
                 .map(|m| m.as_str().to_string())
@@ -102,7 +130,7 @@ pub fn parse_content(content: &str, path: &str) -> Vec<Anchor> {
         }
 
         // Check for end marker
-        if let Some(caps) = end_re.captures(line) {
+        if let Some(caps) = END_RE.captures(line) {
             let end_id = caps.get(1).map(|m| m.as_str()).unwrap_or("");
 
             // Find matching begin marker
