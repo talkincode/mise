@@ -125,13 +125,8 @@ pub fn gather_writing_evidence(
     // Step 3: Search for additional content using ripgrep (low confidence)
     // Extract keywords from primary content for searching
     if let Some(content) = primary_content {
-        // Simple keyword extraction: find significant words
-        let keywords: Vec<_> = content
-            .split_whitespace()
-            .filter(|w| w.len() > 4)
-            .filter(|w| !is_common_word(w))
-            .take(3)
-            .collect();
+        // Smart keyword extraction: supports both English and Chinese
+        let keywords = extract_keywords(&content, 5);
 
         if !keywords.is_empty() {
             let pattern = keywords.join("|");
@@ -160,15 +155,91 @@ pub fn gather_writing_evidence(
     Ok(result_set)
 }
 
-/// Check if a word is a common word that shouldn't be searched
-fn is_common_word(word: &str) -> bool {
+/// Check if a word is a common English word that shouldn't be searched
+pub fn is_common_word(word: &str) -> bool {
     const COMMON: &[&str] = &[
         "the", "and", "that", "this", "with", "from", "have", "been", "were", "will", "would",
         "could", "should", "about", "which", "their", "there", "these", "those", "other", "into",
         "some", "than", "then", "when", "what", "where", "while", "after", "before", "between",
-        "through", "during", "without", "within",
+        "through", "during", "without", "within", "also", "just", "only", "very", "more", "most",
+        "such", "each", "every", "both", "many", "much", "any", "all", "own", "same",
     ];
     COMMON.contains(&word.to_lowercase().as_str())
+}
+
+/// Check if a character is CJK (Chinese/Japanese/Korean)
+#[inline]
+fn is_cjk_char(c: char) -> bool {
+    let cp = c as u32;
+    (0x4E00..=0x9FFF).contains(&cp)      // CJK Unified Ideographs
+        || (0x3400..=0x4DBF).contains(&cp)  // CJK Extension A
+        || (0x3000..=0x303F).contains(&cp)  // CJK Symbols and Punctuation
+        || (0x3040..=0x309F).contains(&cp)  // Hiragana
+        || (0x30A0..=0x30FF).contains(&cp)  // Katakana
+        || (0xAC00..=0xD7AF).contains(&cp)  // Hangul Syllables
+        || (0xFF00..=0xFFEF).contains(&cp) // Fullwidth Forms
+}
+
+/// Check if a CJK character is a common stop word (punctuation, particles)
+#[inline]
+fn is_cjk_stop_char(c: char) -> bool {
+    // Common Chinese punctuation and particles
+    const CJK_STOPS: &[char] = &[
+        '的', '了', '是', '在', '我', '有', '和', '就', '不', '人', '都', '一', '这', '中', '大',
+        '为', '上', '个', '到', '说', '们', '会', '着', '也', '很', '把', '那', '你', '他', '她',
+        '它', '与', '及', '或', '等', '之', '于', '而', '以', '其',
+        // Punctuation (using Unicode escapes for problematic chars)
+        '，', '。', '！', '？', '、', '；', '：', '"', '"', '（', '）', '【', '】', '《', '》', '—',
+        '…', '·',
+    ];
+    CJK_STOPS.contains(&c)
+}
+
+/// Extract keywords from text, supporting both English and CJK content
+pub fn extract_keywords(text: &str, max_keywords: usize) -> Vec<String> {
+    let mut keywords = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    // Extract English words (at least 4 chars, not common)
+    let english_words: Vec<&str> = text
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|w| w.len() >= 4)
+        .filter(|w| !is_common_word(w))
+        .collect();
+
+    for word in english_words {
+        let lower = word.to_lowercase();
+        if !seen.contains(&lower) && keywords.len() < max_keywords {
+            seen.insert(lower.clone());
+            keywords.push(word.to_string());
+        }
+    }
+
+    // Extract CJK n-grams (2-4 character phrases)
+    let cjk_chars: Vec<char> = text
+        .chars()
+        .filter(|c| is_cjk_char(*c) && !is_cjk_stop_char(*c))
+        .collect();
+
+    // Extract 2-grams, 3-grams, and 4-grams
+    for n in [3, 2, 4] {
+        if cjk_chars.len() >= n {
+            for window in cjk_chars.windows(n) {
+                let ngram: String = window.iter().collect();
+                if !seen.contains(&ngram) && keywords.len() < max_keywords {
+                    // Skip if it's mostly stop characters
+                    let stop_count = window.iter().filter(|c| is_cjk_stop_char(**c)).count();
+                    if stop_count < n / 2 {
+                        seen.insert(ngram.clone());
+                        keywords.push(ngram);
+                    }
+                }
+            }
+        }
+    }
+
+    keywords.truncate(max_keywords);
+    keywords
 }
 
 #[cfg(test)]
@@ -182,5 +253,39 @@ mod tests {
         assert!(is_common_word("about"));
         assert!(!is_common_word("function"));
         assert!(!is_common_word("implement"));
+    }
+
+    #[test]
+    fn test_extract_keywords_english() {
+        let text = "This is a function that implements the core logic";
+        let keywords = extract_keywords(text, 3);
+        assert!(keywords.contains(&"function".to_string()));
+        assert!(keywords.contains(&"implements".to_string()));
+        assert!(keywords.contains(&"logic".to_string()) || keywords.contains(&"core".to_string()));
+    }
+
+    #[test]
+    fn test_extract_keywords_chinese() {
+        let text = "这是一个关于上下文准备工具的说明文档";
+        let keywords = extract_keywords(text, 5);
+        // Should extract n-grams like "上下文", "准备工具", "说明文档"
+        assert!(!keywords.is_empty());
+        assert!(keywords.iter().any(|k| k.chars().all(|c| is_cjk_char(c))));
+    }
+
+    #[test]
+    fn test_extract_keywords_mixed() {
+        let text = "mise 是一个上下文准备工具 for AI agents";
+        let keywords = extract_keywords(text, 5);
+        // Should have both English and Chinese keywords
+        assert!(!keywords.is_empty());
+    }
+
+    #[test]
+    fn test_is_cjk_char() {
+        assert!(is_cjk_char('中'));
+        assert!(is_cjk_char('文'));
+        assert!(!is_cjk_char('a'));
+        assert!(!is_cjk_char('1'));
     }
 }

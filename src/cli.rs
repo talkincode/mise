@@ -738,6 +738,68 @@ Supported values:\n\
         )]
         stats: bool,
     },
+
+    /// Calculate project statistics (word count, tokens, anchors).
+    #[command(
+        long_about = "Calculate comprehensive statistics for a writing project.\n\n\
+Provides:\n\
+- Total characters, words, and lines\n\
+- CJK character count (for Chinese/Japanese/Korean)\n\
+- Estimated token count (smart algorithm for mixed content)\n\
+- Anchor statistics by tag\n\
+- Top files by size\n\n\
+Examples:\n\
+  mise flow stats                           # Basic stats\n\
+  mise flow stats --stats-format summary    # Human-readable summary\n\
+  mise flow stats --stats-format json       # Full JSON output\n\
+  mise flow stats --stats-format table      # Markdown table\n\
+  mise flow stats --scope docs --exts md,txt\n\
+  mise flow stats --top 20                  # Show top 20 files\n"
+    )]
+    Stats {
+        /// Limit stats to a subdirectory.
+        #[arg(
+            long,
+            value_name = "PATH",
+            long_help = "Limit statistics to a specific subdirectory.\n\n\
+Example: --scope docs"
+        )]
+        scope: Option<std::path::PathBuf>,
+
+        /// File extensions to include (comma-separated).
+        #[arg(
+            long,
+            value_name = "EXTS",
+            value_delimiter = ',',
+            long_help = "Filter files by extension.\n\n\
+Default: md,txt,rst,adoc,org,tex,html,xml\n\
+Example: --exts md,txt,rst"
+        )]
+        exts: Vec<String>,
+
+        /// Output format (standard/json/summary/table).
+        #[arg(
+            long = "stats-format",
+            value_name = "FORMAT",
+            default_value = "summary",
+            long_help = "Select the output format for statistics.\n\n\
+Supported values:\n\
+- summary (default): human-readable summary\n\
+- json: full JSON object with all stats\n\
+- table: Markdown table format\n\
+- standard: ResultSet format (respects --format flag)"
+        )]
+        stats_format: String,
+
+        /// Number of top files to show.
+        #[arg(
+            long,
+            default_value = "10",
+            value_name = "N",
+            long_help = "Number of top files (by size) to include in the output."
+        )]
+        top: usize,
+    },
 }
 
 /// Run the CLI with parsed arguments
@@ -893,6 +955,24 @@ pub fn run(cli: Cli) -> Result<()> {
                     max_tokens,
                     pack_priority,
                     stats,
+                    render_config,
+                )
+            }
+            FlowCommands::Stats {
+                scope,
+                exts,
+                stats_format,
+                top,
+            } => {
+                let stats_fmt: crate::flows::stats::StatsFormat =
+                    stats_format.parse().unwrap_or_default();
+                let extensions = if exts.is_empty() { None } else { Some(exts) };
+                crate::flows::stats::run_stats(
+                    &root,
+                    scope.as_deref(),
+                    extensions,
+                    stats_fmt,
+                    top,
                     render_config,
                 )
             }
