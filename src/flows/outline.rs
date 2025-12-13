@@ -1,6 +1,7 @@
 //! Outline generation - Generate document outline from anchors
 //!
 //! Creates a hierarchical outline of the project based on anchor structure.
+//! Uses tiktoken for accurate token counting.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -11,6 +12,7 @@ use crate::anchors::parse::{parse_file, Anchor};
 use crate::backends::scan::scan_files;
 use crate::core::model::{Confidence, Kind, ResultItem, ResultSet, SourceMode};
 use crate::core::render::{RenderConfig, Renderer};
+use crate::core::tokenizer::{count_tokens, TokenModel};
 
 /// Outline item representing an anchor with its content stats
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,80 +71,6 @@ fn is_cjk_char(c: char) -> bool {
         || (0xFF00..=0xFFEF).contains(&cp)
 }
 
-/// Check if a character is a code symbol
-#[inline]
-fn is_code_symbol(c: char) -> bool {
-    matches!(
-        c,
-        '(' | ')'
-            | '['
-            | ']'
-            | '{'
-            | '}'
-            | '<'
-            | '>'
-            | '='
-            | '+'
-            | '-'
-            | '*'
-            | '/'
-            | '%'
-            | '&'
-            | '|'
-            | '^'
-            | '!'
-            | '~'
-            | '?'
-            | ':'
-            | ';'
-            | ','
-            | '.'
-            | '@'
-            | '#'
-            | '$'
-            | '\\'
-            | '"'
-            | '\''
-            | '`'
-    )
-}
-
-/// Estimate tokens for text
-fn estimate_tokens(text: &str) -> usize {
-    if text.is_empty() {
-        return 0;
-    }
-
-    let mut ascii_chars = 0usize;
-    let mut cjk_chars = 0usize;
-    let mut other_unicode = 0usize;
-    let mut whitespace = 0usize;
-    let mut code_symbols = 0usize;
-
-    for c in text.chars() {
-        if c.is_ascii_whitespace() {
-            whitespace += 1;
-        } else if c.is_ascii() {
-            if is_code_symbol(c) {
-                code_symbols += 1;
-            } else {
-                ascii_chars += 1;
-            }
-        } else if is_cjk_char(c) {
-            cjk_chars += 1;
-        } else {
-            other_unicode += 1;
-        }
-    }
-
-    let ascii_tokens = (ascii_chars + whitespace).div_ceil(4);
-    let symbol_tokens = code_symbols.div_ceil(2);
-    let cjk_tokens = (cjk_chars * 2).div_ceil(3);
-    let other_tokens = other_unicode.div_ceil(2);
-
-    ascii_tokens + symbol_tokens + cjk_tokens + other_tokens
-}
-
 /// Count words in text
 fn count_words(text: &str) -> usize {
     text.split(|c: char| !c.is_ascii_alphanumeric())
@@ -195,12 +123,12 @@ fn determine_level(anchor: &Anchor, all_anchors: &[Anchor]) -> usize {
 }
 
 /// Build outline from anchor
-fn anchor_to_outline_item(anchor: &Anchor, all_anchors: &[Anchor]) -> OutlineItem {
+fn anchor_to_outline_item(anchor: &Anchor, all_anchors: &[Anchor], model: TokenModel) -> OutlineItem {
     let content = anchor.content.as_deref().unwrap_or("");
     let chars = content.chars().count();
     let words = count_words(content);
     let cjk_chars = count_cjk_chars(content);
-    let tokens = estimate_tokens(content);
+    let tokens = count_tokens(content, model);
     let preview = extract_preview(content, 60);
     let level = determine_level(anchor, all_anchors);
 
@@ -225,6 +153,7 @@ pub fn generate_outline(
     scope: Option<&Path>,
     tag_filter: Option<&str>,
     extensions: Option<&[&str]>,
+    token_model: TokenModel,
 ) -> Result<ProjectOutline> {
     use crate::cache::reader::get_files_cached;
 
@@ -263,7 +192,7 @@ pub fn generate_outline(
     // Build outline items
     let mut items: Vec<OutlineItem> = all_anchors
         .iter()
-        .map(|a| anchor_to_outline_item(a, &all_anchors))
+        .map(|a| anchor_to_outline_item(a, &all_anchors, token_model))
         .collect();
 
     // Sort by path, then by start line
@@ -482,6 +411,7 @@ pub fn run_outline(
     tag_filter: Option<&str>,
     extensions: Option<Vec<String>>,
     outline_format: OutlineFormat,
+    token_model: TokenModel,
     config: RenderConfig,
 ) -> Result<()> {
     let ext_refs: Option<Vec<&str>> = extensions
@@ -489,7 +419,7 @@ pub fn run_outline(
         .map(|v| v.iter().map(|s| s.as_str()).collect());
     let ext_slice: Option<&[&str]> = ext_refs.as_deref();
 
-    let outline = generate_outline(root, scope, tag_filter, ext_slice)?;
+    let outline = generate_outline(root, scope, tag_filter, ext_slice, token_model)?;
 
     match outline_format {
         OutlineFormat::Json => {
@@ -560,12 +490,12 @@ mod tests {
     }
 
     #[test]
-    fn test_estimate_tokens() {
+    fn test_count_tokens_with_tiktoken() {
         let ascii = "Hello world";
-        assert!(estimate_tokens(ascii) > 0);
+        assert!(count_tokens(ascii, TokenModel::Cl100k) > 0);
 
         let cjk = "你好世界";
-        assert!(estimate_tokens(cjk) > 0);
+        assert!(count_tokens(cjk, TokenModel::Cl100k) > 0);
     }
 
     #[test]
@@ -612,15 +542,8 @@ mod tests {
     }
 
     #[test]
-    fn test_estimate_tokens_empty() {
-        assert_eq!(estimate_tokens(""), 0);
-    }
-
-    #[test]
-    fn test_estimate_tokens_code_symbols() {
-        let code = "fn() { }";
-        let tokens = estimate_tokens(code);
-        assert!(tokens > 0);
+    fn test_count_tokens_empty() {
+        assert_eq!(count_tokens("", TokenModel::Cl100k), 0);
     }
 
     #[test]
@@ -654,75 +577,6 @@ mod tests {
         };
         assert_eq!(outline.total_chars, 500);
         assert!(outline.items.is_empty());
-    }
-
-    #[test]
-    fn test_is_code_symbol() {
-        // Brackets and parentheses
-        assert!(is_code_symbol('('));
-        assert!(is_code_symbol(')'));
-        assert!(is_code_symbol('['));
-        assert!(is_code_symbol(']'));
-        assert!(is_code_symbol('{'));
-        assert!(is_code_symbol('}'));
-        assert!(is_code_symbol('<'));
-        assert!(is_code_symbol('>'));
-
-        // Operators
-        assert!(is_code_symbol('='));
-        assert!(is_code_symbol('+'));
-        assert!(is_code_symbol('-'));
-        assert!(is_code_symbol('*'));
-        assert!(is_code_symbol('/'));
-        assert!(is_code_symbol('%'));
-        assert!(is_code_symbol('&'));
-        assert!(is_code_symbol('|'));
-        assert!(is_code_symbol('^'));
-        assert!(is_code_symbol('!'));
-        assert!(is_code_symbol('~'));
-        assert!(is_code_symbol('?'));
-
-        // Punctuation
-        assert!(is_code_symbol(':'));
-        assert!(is_code_symbol(';'));
-        assert!(is_code_symbol(','));
-        assert!(is_code_symbol('.'));
-
-        // Special chars
-        assert!(is_code_symbol('@'));
-        assert!(is_code_symbol('#'));
-        assert!(is_code_symbol('$'));
-        assert!(is_code_symbol('\\'));
-        assert!(is_code_symbol('"'));
-        assert!(is_code_symbol('\''));
-        assert!(is_code_symbol('`'));
-
-        // Non-code symbols
-        assert!(!is_code_symbol('a'));
-        assert!(!is_code_symbol('A'));
-        assert!(!is_code_symbol('0'));
-        assert!(!is_code_symbol(' '));
-    }
-
-    #[test]
-    fn test_estimate_tokens_whitespace() {
-        let text = "   \t\n   ";
-        let tokens = estimate_tokens(text);
-        assert!(tokens > 0);
-    }
-
-    #[test]
-    fn test_estimate_tokens_mixed_content() {
-        let text = "fn test() { let x = 你好; }";
-        let tokens = estimate_tokens(text);
-        assert!(tokens > 0);
-    }
-
-    #[test]
-    fn test_estimate_tokens_other_unicode() {
-        let text = "Hello мир świat"; // Russian and Polish
-        let tokens = estimate_tokens(text);
-        assert!(tokens > 0);
     }
 
     #[test]
@@ -992,5 +846,18 @@ mod tests {
         let md = render_markdown(&outline);
         assert!(md.contains("[parent]"));
         assert!(md.contains("[child]"));
+    }
+
+    #[test]
+    fn test_different_token_models() {
+        let text = "Hello world, 你好世界!";
+        let cl100k = count_tokens(text, TokenModel::Cl100k);
+        let o200k = count_tokens(text, TokenModel::O200k);
+        let heuristic = count_tokens(text, TokenModel::Heuristic);
+        
+        // All should produce non-zero results
+        assert!(cl100k > 0);
+        assert!(o200k > 0);
+        assert!(heuristic > 0);
     }
 }

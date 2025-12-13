@@ -1,6 +1,7 @@
 //! Statistics flow - Project statistics for writing projects
 //!
 //! Provides word count, character count, anchor statistics, and token estimates.
+//! Uses tiktoken for accurate token counting.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -12,6 +13,7 @@ use crate::anchors::parse::parse_file;
 use crate::backends::scan::scan_files;
 use crate::core::model::{Confidence, Kind, ResultItem, ResultSet, SourceMode};
 use crate::core::render::{RenderConfig, Renderer};
+use crate::core::tokenizer::{count_tokens, TokenModel};
 
 /// Statistics for a single file
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -72,82 +74,8 @@ fn is_cjk_char(c: char) -> bool {
         || (0xFF00..=0xFFEF).contains(&cp) // Fullwidth Forms
 }
 
-/// Check if a character is a code symbol
-#[inline]
-fn is_code_symbol(c: char) -> bool {
-    matches!(
-        c,
-        '(' | ')'
-            | '['
-            | ']'
-            | '{'
-            | '}'
-            | '<'
-            | '>'
-            | '='
-            | '+'
-            | '-'
-            | '*'
-            | '/'
-            | '%'
-            | '&'
-            | '|'
-            | '^'
-            | '!'
-            | '~'
-            | '?'
-            | ':'
-            | ';'
-            | ','
-            | '.'
-            | '@'
-            | '#'
-            | '$'
-            | '\\'
-            | '"'
-            | '\''
-            | '`'
-    )
-}
-
-/// Estimate tokens using smart analysis
-fn estimate_tokens_smart(text: &str) -> usize {
-    if text.is_empty() {
-        return 0;
-    }
-
-    let mut ascii_chars = 0usize;
-    let mut cjk_chars = 0usize;
-    let mut other_unicode = 0usize;
-    let mut whitespace = 0usize;
-    let mut code_symbols = 0usize;
-
-    for c in text.chars() {
-        if c.is_ascii_whitespace() {
-            whitespace += 1;
-        } else if c.is_ascii() {
-            if is_code_symbol(c) {
-                code_symbols += 1;
-            } else {
-                ascii_chars += 1;
-            }
-        } else if is_cjk_char(c) {
-            cjk_chars += 1;
-        } else {
-            other_unicode += 1;
-        }
-    }
-
-    let ascii_tokens = (ascii_chars + whitespace).div_ceil(4);
-    let symbol_tokens = code_symbols.div_ceil(2);
-    let cjk_tokens = (cjk_chars * 2).div_ceil(3);
-    let other_tokens = other_unicode.div_ceil(2);
-
-    ascii_tokens + symbol_tokens + cjk_tokens + other_tokens
-}
-
 /// Calculate statistics for a single file
-fn calculate_file_stats(path: &Path, relative_path: &str) -> Option<FileStats> {
+fn calculate_file_stats(path: &Path, relative_path: &str, model: TokenModel) -> Option<FileStats> {
     let content = fs::read_to_string(path).ok()?;
 
     let chars = content.chars().count();
@@ -163,8 +91,8 @@ fn calculate_file_stats(path: &Path, relative_path: &str) -> Option<FileStats> {
     // Count CJK characters
     let cjk_chars = content.chars().filter(|c| is_cjk_char(*c)).count();
 
-    // Estimate tokens
-    let tokens = estimate_tokens_smart(&content);
+    // Count tokens using tiktoken
+    let tokens = count_tokens(&content, model);
 
     // Count anchors
     let anchors = parse_file(path, relative_path);
@@ -188,6 +116,7 @@ pub fn calculate_project_stats(
     scope: Option<&Path>,
     extensions: Option<&[&str]>,
     top_n: usize,
+    token_model: TokenModel,
 ) -> Result<ProjectStats> {
     use crate::cache::reader::get_files_cached;
 
@@ -216,7 +145,7 @@ pub fn calculate_project_stats(
             }
 
             let full_path = root.join(path);
-            if let Some(file_stats) = calculate_file_stats(&full_path, path) {
+            if let Some(file_stats) = calculate_file_stats(&full_path, path, token_model) {
                 stats.total_files += 1;
                 stats.total_chars += file_stats.chars;
                 stats.total_chars_no_space += file_stats.chars_no_space;
@@ -364,6 +293,7 @@ pub fn run_stats(
     extensions: Option<Vec<String>>,
     stats_format: StatsFormat,
     top_n: usize,
+    token_model: TokenModel,
     config: RenderConfig,
 ) -> Result<()> {
     let ext_refs: Option<Vec<&str>> = extensions
@@ -371,7 +301,7 @@ pub fn run_stats(
         .map(|v| v.iter().map(|s| s.as_str()).collect());
     let ext_slice: Option<&[&str]> = ext_refs.as_deref();
 
-    let stats = calculate_project_stats(root, scope, ext_slice, top_n)?;
+    let stats = calculate_project_stats(root, scope, ext_slice, top_n, token_model)?;
 
     match stats_format {
         StatsFormat::Json => {
@@ -379,7 +309,7 @@ pub fn run_stats(
             println!("{}", json);
         }
         StatsFormat::Summary => {
-            println!("📊 Project Statistics");
+            println!("📊 Project Statistics (model: {})", token_model);
             println!("═══════════════════════════════════════");
             println!("  Files:        {}", stats.total_files);
             println!("  Lines:        {}", stats.total_lines);
@@ -387,7 +317,7 @@ pub fn run_stats(
             println!("  Chars (excl): {}", stats.total_chars_no_space);
             println!("  Words (EN):   {}", stats.total_words);
             println!("  CJK Chars:    {}", stats.total_cjk_chars);
-            println!("  Est. Tokens:  {}", stats.total_tokens);
+            println!("  Tokens:       {}", stats.total_tokens);
             println!("  Anchors:      {}", stats.total_anchors);
             println!("═══════════════════════════════════════");
 
@@ -460,21 +390,16 @@ mod tests {
     }
 
     #[test]
-    fn test_estimate_tokens_smart() {
+    fn test_count_tokens_with_tiktoken() {
         // Pure ASCII
         let ascii = "Hello world, this is a test.";
-        let tokens = estimate_tokens_smart(ascii);
+        let tokens = count_tokens(ascii, TokenModel::Cl100k);
         assert!(tokens > 0);
 
         // Pure CJK
         let cjk = "这是一个测试文档";
-        let cjk_tokens = estimate_tokens_smart(cjk);
+        let cjk_tokens = count_tokens(cjk, TokenModel::Cl100k);
         assert!(cjk_tokens > 0);
-
-        // CJK should have higher token density
-        let ascii_per_char = tokens as f64 / ascii.chars().count() as f64;
-        let cjk_per_char = cjk_tokens as f64 / cjk.chars().count() as f64;
-        assert!(cjk_per_char > ascii_per_char);
     }
 
     #[test]
@@ -493,41 +418,21 @@ mod tests {
     }
 
     #[test]
-    fn test_is_code_symbol() {
-        assert!(is_code_symbol('('));
-        assert!(is_code_symbol(')'));
-        assert!(is_code_symbol('['));
-        assert!(is_code_symbol('{'));
-        assert!(is_code_symbol(';'));
-        assert!(is_code_symbol('='));
-        assert!(!is_code_symbol('a'));
-        assert!(!is_code_symbol('中'));
+    fn test_count_tokens_empty() {
+        assert_eq!(count_tokens("", TokenModel::Cl100k), 0);
     }
 
     #[test]
-    fn test_estimate_tokens_empty() {
-        assert_eq!(estimate_tokens_smart(""), 0);
-    }
-
-    #[test]
-    fn test_estimate_tokens_whitespace() {
-        let text = "   \n\t  ";
-        let tokens = estimate_tokens_smart(text);
-        // Whitespace may still produce some tokens depending on tokenization
-        assert!(tokens < 10); // Should be very few tokens
-    }
-
-    #[test]
-    fn test_estimate_tokens_code() {
+    fn test_count_tokens_code() {
         let code = "fn main() { println!(\"hello\"); }";
-        let tokens = estimate_tokens_smart(code);
+        let tokens = count_tokens(code, TokenModel::Cl100k);
         assert!(tokens > 0);
     }
 
     #[test]
-    fn test_estimate_tokens_mixed() {
+    fn test_count_tokens_mixed() {
         let mixed = "Hello 你好 World 世界";
-        let tokens = estimate_tokens_smart(mixed);
+        let tokens = count_tokens(mixed, TokenModel::Cl100k);
         assert!(tokens > 0);
     }
 
@@ -588,7 +493,7 @@ mod tests {
         let file_path = temp.path().join("test.md");
         std::fs::write(&file_path, "Hello world\nThis is a test.\n").unwrap();
 
-        let stats = calculate_file_stats(&file_path, "test.md");
+        let stats = calculate_file_stats(&file_path, "test.md", TokenModel::default());
         assert!(stats.is_some());
         let stats = stats.unwrap();
         assert_eq!(stats.path, "test.md");
@@ -599,7 +504,11 @@ mod tests {
 
     #[test]
     fn test_calculate_file_stats_nonexistent() {
-        let stats = calculate_file_stats(Path::new("/nonexistent/path.txt"), "path.txt");
+        let stats = calculate_file_stats(
+            Path::new("/nonexistent/path.txt"),
+            "path.txt",
+            TokenModel::default(),
+        );
         assert!(stats.is_none());
     }
 
@@ -609,7 +518,7 @@ mod tests {
         let file_path = temp.path().join("test.md");
         std::fs::write(&file_path, "你好世界 Hello World").unwrap();
 
-        let stats = calculate_file_stats(&file_path, "test.md").unwrap();
+        let stats = calculate_file_stats(&file_path, "test.md", TokenModel::default()).unwrap();
         assert!(stats.cjk_chars >= 4);
         assert!(stats.words >= 2);
     }
@@ -620,7 +529,8 @@ mod tests {
         std::fs::write(temp.path().join("file1.md"), "Hello world").unwrap();
         std::fs::write(temp.path().join("file2.txt"), "Test content").unwrap();
 
-        let stats = calculate_project_stats(temp.path(), None, None, 10).unwrap();
+        let stats =
+            calculate_project_stats(temp.path(), None, None, 10, TokenModel::default()).unwrap();
         assert!(stats.total_files >= 2);
         assert!(stats.total_chars > 0);
     }
@@ -645,10 +555,15 @@ mod tests {
     }
 
     #[test]
-    fn test_estimate_tokens_other_unicode() {
-        // Test with non-ASCII, non-CJK characters (like emoji or accented chars)
-        let text = "Café résumé naïve";
-        let tokens = estimate_tokens_smart(text);
-        assert!(tokens > 0);
+    fn test_different_token_models() {
+        let text = "Hello world, 你好世界!";
+        let cl100k = count_tokens(text, TokenModel::Cl100k);
+        let o200k = count_tokens(text, TokenModel::O200k);
+        let heuristic = count_tokens(text, TokenModel::Heuristic);
+
+        // All should produce non-zero results
+        assert!(cl100k > 0);
+        assert!(o200k > 0);
+        assert!(heuristic > 0);
     }
 }

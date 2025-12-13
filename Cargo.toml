@@ -45,6 +45,9 @@ sha1 = "0.10"
 # Time
 chrono = { version = "0.4", features = ["serde"] }
 
+# Token counting (for accurate LLM token estimation)
+tiktoken-rs = "0.9.1"
+
 # Colored output (optional)
 colored = "2"
 

@@ -11,6 +11,7 @@ use std::path::Path;
 use crate::anchors::api::get_anchor;
 use crate::core::model::{Confidence, Kind, Meta, Range, ResultItem, ResultSet, SourceMode};
 use crate::core::render::{RenderConfig, Renderer};
+use crate::core::tokenizer::{count_tokens, TokenModel};
 
 /// Priority mode for truncation when over budget
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -46,6 +47,8 @@ pub struct PackOptions {
     pub max_tokens: Option<usize>,
     /// Priority mode for truncation
     pub priority: PackPriority,
+    /// Token model for counting (default: cl100k)
+    pub token_model: TokenModel,
 }
 
 /// Pack result statistics
@@ -56,6 +59,8 @@ pub struct PackStats {
     pub estimated_tokens: usize,
     pub truncated: bool,
     pub items_truncated: usize,
+    /// Token model used for counting
+    pub token_model: String,
 }
 
 /// Find a valid UTF-8 character boundary at or before the given byte index
@@ -72,120 +77,18 @@ fn find_char_boundary(s: &str, max_bytes: usize) -> usize {
     pos
 }
 
-/// Token estimation strategy based on content analysis
-///
-/// Different content types have different token densities:
-/// - English text: ~4 characters per token
-/// - Code: ~3-4 characters per token (due to symbols, operators)
-/// - CJK (Chinese/Japanese/Korean): ~1.5-2 characters per token
-/// - Mixed content: weighted average
-///
-/// This implementation analyzes the actual content to provide better estimates.
-fn estimate_tokens_smart(text: &str) -> usize {
-    if text.is_empty() {
-        return 0;
-    }
-
-    let mut ascii_chars = 0usize;
-    let mut cjk_chars = 0usize;
-    let mut other_unicode = 0usize;
-    let mut whitespace = 0usize;
-    let mut code_symbols = 0usize;
-
-    for c in text.chars() {
-        if c.is_ascii_whitespace() {
-            whitespace += 1;
-        } else if c.is_ascii() {
-            if is_code_symbol(c) {
-                code_symbols += 1;
-            } else {
-                ascii_chars += 1;
-            }
-        } else if is_cjk_char(c) {
-            cjk_chars += 1;
-        } else {
-            other_unicode += 1;
-        }
-    }
-
-    // Token estimation rules (based on GPT/Claude tokenizer behavior):
-    // - ASCII words: ~4 chars/token (including spaces between words)
-    // - Code symbols: ~1-2 chars/token (operators often split)
-    // - CJK characters: ~1.5-2 chars/token (often 1-2 chars per token)
-    // - Other unicode: ~2-3 chars/token
-
-    let ascii_tokens = (ascii_chars + whitespace).div_ceil(4);
-    let symbol_tokens = code_symbols.div_ceil(2);
-    let cjk_tokens = (cjk_chars * 2).div_ceil(3); // ~1.5 chars per token
-    let other_tokens = other_unicode.div_ceil(2);
-
-    ascii_tokens + symbol_tokens + cjk_tokens + other_tokens
-}
-
-/// Check if a character is a common code symbol/operator
-#[inline]
-fn is_code_symbol(c: char) -> bool {
-    matches!(
-        c,
-        '(' | ')'
-            | '['
-            | ']'
-            | '{'
-            | '}'
-            | '<'
-            | '>'
-            | '='
-            | '+'
-            | '-'
-            | '*'
-            | '/'
-            | '%'
-            | '&'
-            | '|'
-            | '^'
-            | '!'
-            | '~'
-            | '?'
-            | ':'
-            | ';'
-            | ','
-            | '.'
-            | '@'
-            | '#'
-            | '$'
-            | '\\'
-            | '"'
-            | '\''
-            | '`'
-    )
-}
-
-/// Check if a character is CJK (Chinese/Japanese/Korean)
-#[inline]
-fn is_cjk_char(c: char) -> bool {
-    let cp = c as u32;
-    // CJK Unified Ideographs and common ranges
-    (0x4E00..=0x9FFF).contains(&cp)      // CJK Unified Ideographs
-        || (0x3400..=0x4DBF).contains(&cp)  // CJK Extension A
-        || (0x3000..=0x303F).contains(&cp)  // CJK Symbols and Punctuation
-        || (0x3040..=0x309F).contains(&cp)  // Hiragana
-        || (0x30A0..=0x30FF).contains(&cp)  // Katakana
-        || (0xAC00..=0xD7AF).contains(&cp)  // Hangul Syllables
-        || (0xFF00..=0xFFEF).contains(&cp) // Fullwidth Forms
-}
-
-/// Estimate tokens for a result item with smart analysis
-fn item_tokens(item: &ResultItem) -> usize {
+/// Estimate tokens for a result item using tiktoken
+fn item_tokens(item: &ResultItem, model: TokenModel) -> usize {
     let mut total_tokens = 0;
 
-    // Path tokens (typically ASCII, use simple estimate)
+    // Path tokens
     if let Some(path) = &item.path {
-        total_tokens += path.len().div_ceil(4);
+        total_tokens += count_tokens(path, model);
     }
 
-    // Excerpt/content tokens (use smart estimation)
+    // Excerpt/content tokens
     if let Some(excerpt) = &item.excerpt {
-        total_tokens += estimate_tokens_smart(excerpt);
+        total_tokens += count_tokens(excerpt, model);
     }
 
     // JSON structure overhead (~12-15 tokens for field names and formatting)
@@ -275,6 +178,7 @@ fn apply_budget(
     items: Vec<ResultItem>,
     max_tokens: Option<usize>,
     priority: PackPriority,
+    model: TokenModel,
 ) -> (Vec<ResultItem>, PackStats) {
     let total_items = items.len();
     let total_chars: usize = items
@@ -282,8 +186,8 @@ fn apply_budget(
         .map(|i| i.excerpt.as_ref().map(|e| e.len()).unwrap_or(0))
         .sum();
 
-    // Use smart token estimation for total
-    let estimated_tokens: usize = items.iter().map(item_tokens).sum();
+    // Use tiktoken for accurate token estimation
+    let estimated_tokens: usize = items.iter().map(|i| item_tokens(i, model)).sum();
 
     // If no budget or under budget, return as-is
     if max_tokens.is_none() || estimated_tokens <= max_tokens.unwrap() {
@@ -293,6 +197,7 @@ fn apply_budget(
             estimated_tokens,
             truncated: false,
             items_truncated: 0,
+            token_model: model.to_string(),
         };
         return (items, stats);
     }
@@ -319,7 +224,7 @@ fn apply_budget(
     let mut items_truncated = 0;
 
     for item in sorted_items {
-        let item_token_count = item_tokens(&item);
+        let item_token_count = item_tokens(&item, model);
 
         if current_tokens + item_token_count <= budget {
             current_tokens += item_token_count;
@@ -350,8 +255,8 @@ fn apply_budget(
         }
     }
 
-    // Use smart token estimation for final result
-    let final_tokens: usize = result.iter().map(item_tokens).sum();
+    // Use tiktoken for accurate final token count
+    let final_tokens: usize = result.iter().map(|i| item_tokens(i, model)).sum();
 
     let stats = PackStats {
         total_items,
@@ -359,6 +264,7 @@ fn apply_budget(
         estimated_tokens: final_tokens,
         truncated: items_truncated > 0 || result.len() < total_items,
         items_truncated: total_items - result.len(),
+        token_model: model.to_string(),
     };
 
     (result, stats)
@@ -376,8 +282,9 @@ pub fn pack_context(root: &Path, opts: PackOptions) -> Result<(ResultSet, PackSt
     let file_items = collect_files(root, &opts.files)?;
     all_items.extend(file_items);
 
-    // Apply token budget
-    let (final_items, stats) = apply_budget(all_items, opts.max_tokens, opts.priority);
+    // Apply token budget with the specified model
+    let (final_items, stats) =
+        apply_budget(all_items, opts.max_tokens, opts.priority, opts.token_model);
 
     let mut result_set = ResultSet::new();
     for item in final_items {
@@ -395,6 +302,7 @@ pub fn run_pack(
     max_tokens: Option<usize>,
     priority: PackPriority,
     show_stats: bool,
+    token_model: TokenModel,
     config: RenderConfig,
 ) -> Result<()> {
     let opts = PackOptions {
@@ -402,6 +310,7 @@ pub fn run_pack(
         files,
         max_tokens,
         priority,
+        token_model,
     };
 
     let (result_set, stats) = pack_context(root, opts)?;
@@ -411,7 +320,10 @@ pub fn run_pack(
         eprintln!("📦 Pack Statistics:");
         eprintln!("   Items: {}", stats.total_items);
         eprintln!("   Characters: {}", stats.total_chars);
-        eprintln!("   Estimated tokens: {}", stats.estimated_tokens);
+        eprintln!(
+            "   Tokens: {} (model: {})",
+            stats.estimated_tokens, stats.token_model
+        );
         if stats.truncated {
             eprintln!("   ⚠️  Truncated: {} items dropped", stats.items_truncated);
         }
@@ -427,6 +339,7 @@ pub fn run_pack(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::tokenizer::estimate_tokens_heuristic;
 
     #[test]
     fn test_pack_priority_parse() {
@@ -455,7 +368,8 @@ mod tests {
             },
         ];
 
-        let (result, stats) = apply_budget(items, None, PackPriority::ByOrder);
+        let (result, stats) =
+            apply_budget(items, None, PackPriority::ByOrder, TokenModel::default());
 
         assert_eq!(result.len(), 2);
         assert!(!stats.truncated);
@@ -466,82 +380,67 @@ mod tests {
         let items = vec![
             {
                 let mut item = ResultItem::file("test.rs");
-                item.excerpt = Some("a".repeat(1000)); // 1000 ASCII chars
+                // Use varied text to get more tokens - "hello world " repeated gives ~3 tokens per repeat
+                item.excerpt = Some("hello world ".repeat(500)); // ~1500 tokens
                 item.confidence = Confidence::High;
                 item
             },
             {
                 let mut item = ResultItem::file("lib.rs");
-                item.excerpt = Some("b".repeat(1000)); // Another chunk
+                item.excerpt = Some("goodbye world ".repeat(500)); // Another ~1500 tokens
                 item.confidence = Confidence::Low;
                 item
             },
         ];
 
-        // Set a budget that allows first item but not both
-        let (result, stats) = apply_budget(items, Some(400), PackPriority::ByConfidence);
+        // Set a very small budget that cannot fit even one full item
+        let (result, stats) = apply_budget(
+            items,
+            Some(100),
+            PackPriority::ByConfidence,
+            TokenModel::default(),
+        );
 
         assert!(stats.truncated);
-        assert!(!result.is_empty()); // At least first item should be included
+        assert!(!result.is_empty()); // At least first item should be partially included
     }
 
     #[test]
-    fn test_estimate_tokens_smart_ascii() {
-        // Pure ASCII text: ~4 chars per token
+    fn test_tiktoken_count_ascii() {
+        // Pure ASCII text: tiktoken gives accurate count
         let text = "Hello world, this is a test.";
-        let tokens = estimate_tokens_smart(text);
-        // 28 chars should be ~7 tokens
-        assert!((5..=10).contains(&tokens));
+        let tokens = count_tokens(text, TokenModel::Cl100k);
+        // tiktoken count for this text
+        assert!(tokens > 0 && tokens < 15);
     }
 
     #[test]
-    fn test_estimate_tokens_smart_code() {
-        // Code with symbols: more tokens due to operators
+    fn test_tiktoken_count_code() {
+        // Code with symbols
         let text = "fn main() { let x = 1 + 2; }";
-        let tokens = estimate_tokens_smart(text);
-        // Code typically has more tokens per char due to symbols
-        assert!((8..=20).contains(&tokens));
+        let tokens = count_tokens(text, TokenModel::Cl100k);
+        assert!(tokens > 0);
     }
 
     #[test]
-    fn test_estimate_tokens_smart_cjk() {
-        // CJK text: ~1.5-2 chars per token (more tokens per char)
+    fn test_tiktoken_count_cjk() {
+        // CJK text: tiktoken gives accurate count
         let text = "这是一个中文测试文本";
-        let tokens = estimate_tokens_smart(text);
-        // 10 CJK chars should be ~6-7 tokens
-        assert!((5..=10).contains(&tokens));
+        let tokens = count_tokens(text, TokenModel::Cl100k);
+        assert!(tokens > 0);
     }
 
     #[test]
-    fn test_estimate_tokens_smart_mixed() {
+    fn test_tiktoken_count_mixed() {
         // Mixed content
         let text = "Hello 世界! fn test() { println!(\"你好\"); }";
-        let tokens = estimate_tokens_smart(text);
-        // Should handle mixed content reasonably
+        let tokens = count_tokens(text, TokenModel::Cl100k);
         assert!(tokens > 5);
     }
 
     #[test]
-    fn test_estimate_tokens_smart_empty() {
-        assert_eq!(estimate_tokens_smart(""), 0);
-    }
-
-    #[test]
-    fn test_is_cjk_char() {
-        assert!(is_cjk_char('中'));
-        assert!(is_cjk_char('の'));
-        assert!(is_cjk_char('한'));
-        assert!(!is_cjk_char('a'));
-        assert!(!is_cjk_char('1'));
-    }
-
-    #[test]
-    fn test_is_code_symbol() {
-        assert!(is_code_symbol('('));
-        assert!(is_code_symbol('+'));
-        assert!(is_code_symbol('{'));
-        assert!(!is_code_symbol('a'));
-        assert!(!is_code_symbol('中'));
+    fn test_heuristic_empty() {
+        assert_eq!(estimate_tokens_heuristic(""), 0);
     }
 
     #[test]
@@ -571,8 +470,14 @@ mod tests {
 
     #[test]
     fn test_pack_priority_parse_aliases() {
-        assert_eq!("byconfidence".parse::<PackPriority>().unwrap(), PackPriority::ByConfidence);
-        assert_eq!("byorder".parse::<PackPriority>().unwrap(), PackPriority::ByOrder);
+        assert_eq!(
+            "byconfidence".parse::<PackPriority>().unwrap(),
+            PackPriority::ByConfidence
+        );
+        assert_eq!(
+            "byorder".parse::<PackPriority>().unwrap(),
+            PackPriority::ByOrder
+        );
     }
 
     #[test]
@@ -588,9 +493,11 @@ mod tests {
             estimated_tokens: 250,
             truncated: true,
             items_truncated: 2,
+            token_model: "cl100k".to_string(),
         };
         assert_eq!(stats.total_items, 10);
         assert!(stats.truncated);
+        assert_eq!(stats.token_model, "cl100k");
     }
 
     #[test]
@@ -600,12 +507,13 @@ mod tests {
         assert!(opts.files.is_empty());
         assert!(opts.max_tokens.is_none());
         assert_eq!(opts.priority, PackPriority::ByConfidence);
+        assert_eq!(opts.token_model, TokenModel::default());
     }
 
     #[test]
     fn test_item_tokens_file_only() {
         let item = ResultItem::file("src/main.rs");
-        let tokens = item_tokens(&item);
+        let tokens = item_tokens(&item, TokenModel::default());
         assert!(tokens > 0);
     }
 
@@ -613,108 +521,20 @@ mod tests {
     fn test_item_tokens_with_excerpt() {
         let mut item = ResultItem::file("test.rs");
         item.excerpt = Some("fn main() { println!(\"hello\"); }".to_string());
-        let tokens = item_tokens(&item);
+        let tokens = item_tokens(&item, TokenModel::default());
         // Should include path tokens + excerpt tokens + overhead
         assert!(tokens > 15); // At least the overhead
     }
 
     #[test]
-    fn test_is_code_symbol_all_variants() {
-        // Test all brackets
-        assert!(is_code_symbol(')'));
-        assert!(is_code_symbol('['));
-        assert!(is_code_symbol(']'));
-        assert!(is_code_symbol('}'));
-        assert!(is_code_symbol('<'));
-        assert!(is_code_symbol('>'));
-
-        // Test operators
-        assert!(is_code_symbol('='));
-        assert!(is_code_symbol('-'));
-        assert!(is_code_symbol('*'));
-        assert!(is_code_symbol('/'));
-        assert!(is_code_symbol('%'));
-        assert!(is_code_symbol('&'));
-        assert!(is_code_symbol('|'));
-        assert!(is_code_symbol('^'));
-        assert!(is_code_symbol('!'));
-        assert!(is_code_symbol('~'));
-        assert!(is_code_symbol('?'));
-
-        // Test punctuation
-        assert!(is_code_symbol(':'));
-        assert!(is_code_symbol(';'));
-        assert!(is_code_symbol(','));
-        assert!(is_code_symbol('.'));
-
-        // Test special
-        assert!(is_code_symbol('@'));
-        assert!(is_code_symbol('#'));
-        assert!(is_code_symbol('$'));
-        assert!(is_code_symbol('\\'));
-        assert!(is_code_symbol('"'));
-        assert!(is_code_symbol('\''));
-        assert!(is_code_symbol('`'));
-
-        // Not symbols
-        assert!(!is_code_symbol(' '));
-        assert!(!is_code_symbol('\n'));
-        assert!(!is_code_symbol('0'));
-        assert!(!is_code_symbol('_'));
-    }
-
-    #[test]
-    fn test_is_cjk_char_ranges() {
-        // CJK Unified Ideographs
-        assert!(is_cjk_char('\u{4E00}')); // Start
-        assert!(is_cjk_char('\u{9FFF}')); // End
-
-        // CJK Extension A
-        assert!(is_cjk_char('\u{3400}'));
-
-        // CJK Symbols
-        assert!(is_cjk_char('\u{3000}'));
-
-        // Hiragana
-        assert!(is_cjk_char('\u{3040}'));
-
-        // Katakana
-        assert!(is_cjk_char('\u{30A0}'));
-
-        // Hangul
-        assert!(is_cjk_char('\u{AC00}'));
-
-        // Fullwidth
-        assert!(is_cjk_char('\u{FF00}'));
-    }
-
-    #[test]
-    fn test_estimate_tokens_smart_whitespace_only() {
-        let text = "   \t\n\r   ";
-        let tokens = estimate_tokens_smart(text);
-        assert!(tokens >= 1);
-    }
-
-    #[test]
-    fn test_estimate_tokens_smart_symbols_only() {
-        let text = "(){}[]<>=+-*/";
-        let tokens = estimate_tokens_smart(text);
-        // 13 symbols / 2 = at least 6-7 tokens
-        assert!(tokens >= 5);
-    }
-
-    #[test]
-    fn test_estimate_tokens_smart_other_unicode() {
-        let text = "αβγδεζ"; // Greek letters
-        let tokens = estimate_tokens_smart(text);
-        // 6 other unicode chars / 2 = 3 tokens
-        assert!(tokens >= 2);
-    }
-
-    #[test]
     fn test_apply_budget_empty_input() {
         let items: Vec<ResultItem> = vec![];
-        let (result, stats) = apply_budget(items, Some(100), PackPriority::ByOrder);
+        let (result, stats) = apply_budget(
+            items,
+            Some(100),
+            PackPriority::ByOrder,
+            TokenModel::default(),
+        );
         assert!(result.is_empty());
         assert_eq!(stats.total_items, 0);
         assert!(!stats.truncated);
@@ -726,7 +546,7 @@ mod tests {
             {
                 let mut item = ResultItem::file("low.rs");
                 item.confidence = Confidence::Low;
-                item.excerpt = Some("a".repeat(500));  // Make it big enough to trigger sorting
+                item.excerpt = Some("a".repeat(500)); // Make it big enough to trigger sorting
                 item
             },
             {
@@ -744,11 +564,14 @@ mod tests {
         ];
 
         // Set a very large budget so sorting happens but items fit
-        // This will exceed initial estimate and trigger sorting
-        let (result, _) = apply_budget(items, Some(10000), PackPriority::ByConfidence);
-        
+        let (result, _) = apply_budget(
+            items,
+            Some(10000),
+            PackPriority::ByConfidence,
+            TokenModel::default(),
+        );
+
         // When under budget, items are returned in original order
-        // So we need to verify that all items are present
         assert_eq!(result.len(), 3);
     }
 
@@ -772,9 +595,24 @@ mod tests {
             },
         ];
 
-        let (result, _) = apply_budget(items, None, PackPriority::ByOrder);
+        let (result, _) = apply_budget(items, None, PackPriority::ByOrder, TokenModel::default());
         assert_eq!(result[0].path, Some("first.rs".to_string()));
         assert_eq!(result[1].path, Some("second.rs".to_string()));
         assert_eq!(result[2].path, Some("third.rs".to_string()));
+    }
+
+    #[test]
+    fn test_different_token_models() {
+        let mut item = ResultItem::file("test.rs");
+        item.excerpt = Some("Hello world, 你好世界! fn test() {}".to_string());
+
+        let cl100k = item_tokens(&item, TokenModel::Cl100k);
+        let o200k = item_tokens(&item, TokenModel::O200k);
+        let heuristic = item_tokens(&item, TokenModel::Heuristic);
+
+        // All should produce non-zero results
+        assert!(cl100k > 0);
+        assert!(o200k > 0);
+        assert!(heuristic > 0);
     }
 }

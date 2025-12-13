@@ -705,7 +705,7 @@ fn pack_with_stats_outputs_statistics() {
     // Stats should be printed to stderr
     assert!(stderr.contains("Pack Statistics"));
     assert!(stderr.contains("Items:"));
-    assert!(stderr.contains("Estimated tokens:"));
+    assert!(stderr.contains("Tokens:"));
 }
 
 #[test]

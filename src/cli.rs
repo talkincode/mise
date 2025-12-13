@@ -5,6 +5,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 use crate::core::render::{OutputFormat, RenderConfig};
+use crate::core::tokenizer::TokenModel;
 
 /// mise - a unified CLI for scanning files, managing anchors, and searching code.
 #[derive(Parser, Debug)]
@@ -737,6 +738,23 @@ Supported values:\n\
             long_help = "Print pack statistics (item count, token estimate) to stderr."
         )]
         stats: bool,
+
+        /// Token model for accurate counting (cl100k/o200k/gpt4/gpt4o/gpt35turbo/claude3/heuristic).
+        #[arg(
+            long,
+            value_name = "MODEL",
+            default_value = "cl100k",
+            long_help = "Token model for accurate counting.\n\n\
+Supported values:\n\
+- cl100k (default): GPT-4, Claude 3 default encoding\n\
+- o200k: GPT-4o optimized encoding\n\
+- gpt4: Same as cl100k\n\
+- gpt4o: Same as o200k\n\
+- gpt35turbo: GPT-3.5 Turbo encoding\n\
+- claude3: Same as cl100k\n\
+- heuristic: Fast estimation (chars/4 + CJK adjustment)"
+        )]
+        model: String,
     },
 
     /// Calculate project statistics (word count, tokens, anchors).
@@ -799,6 +817,23 @@ Supported values:\n\
             long_help = "Number of top files (by size) to include in the output."
         )]
         top: usize,
+
+        /// Token model for accurate counting (cl100k/o200k/gpt4/gpt4o/gpt35turbo/claude3/heuristic).
+        #[arg(
+            long,
+            value_name = "MODEL",
+            default_value = "cl100k",
+            long_help = "Token model for accurate counting.\n\n\
+Supported values:\n\
+- cl100k (default): GPT-4, Claude 3 default encoding\n\
+- o200k: GPT-4o optimized encoding\n\
+- gpt4: Same as cl100k\n\
+- gpt4o: Same as o200k\n\
+- gpt35turbo: GPT-3.5 Turbo encoding\n\
+- claude3: Same as cl100k\n\
+- heuristic: Fast estimation (chars/4 + CJK adjustment)"
+        )]
+        model: String,
     },
 
     /// Generate document outline from anchors.
@@ -860,6 +895,23 @@ Supported values:\n\
 - standard: ResultSet format"
         )]
         outline_format: String,
+
+        /// Token model for accurate counting (cl100k/o200k/gpt4/gpt4o/gpt35turbo/claude3/heuristic).
+        #[arg(
+            long,
+            value_name = "MODEL",
+            default_value = "cl100k",
+            long_help = "Token model for accurate counting.\n\n\
+Supported values:\n\
+- cl100k (default): GPT-4, Claude 3 default encoding\n\
+- o200k: GPT-4o optimized encoding\n\
+- gpt4: Same as cl100k\n\
+- gpt4o: Same as o200k\n\
+- gpt35turbo: GPT-3.5 Turbo encoding\n\
+- claude3: Same as cl100k\n\
+- heuristic: Fast estimation (chars/4 + CJK adjustment)"
+        )]
+        model: String,
     },
 }
 
@@ -1006,9 +1058,11 @@ pub fn run(cli: Cli) -> Result<()> {
                 max_tokens,
                 priority,
                 stats,
+                model,
             } => {
                 let pack_priority: crate::flows::pack::PackPriority =
                     priority.parse().unwrap_or_default();
+                let token_model: TokenModel = model.parse().unwrap_or_default();
                 crate::flows::pack::run_pack(
                     &root,
                     anchors,
@@ -1016,6 +1070,7 @@ pub fn run(cli: Cli) -> Result<()> {
                     max_tokens,
                     pack_priority,
                     stats,
+                    token_model,
                     render_config,
                 )
             }
@@ -1024,16 +1079,19 @@ pub fn run(cli: Cli) -> Result<()> {
                 exts,
                 stats_format,
                 top,
+                model,
             } => {
                 let stats_fmt: crate::flows::stats::StatsFormat =
                     stats_format.parse().unwrap_or_default();
                 let extensions = if exts.is_empty() { None } else { Some(exts) };
+                let token_model: TokenModel = model.parse().unwrap_or_default();
                 crate::flows::stats::run_stats(
                     &root,
                     scope.as_deref(),
                     extensions,
                     stats_fmt,
                     top,
+                    token_model,
                     render_config,
                 )
             }
@@ -1042,16 +1100,19 @@ pub fn run(cli: Cli) -> Result<()> {
                 tag,
                 exts,
                 outline_format,
+                model,
             } => {
                 let outline_fmt: crate::flows::outline::OutlineFormat =
                     outline_format.parse().unwrap_or_default();
                 let extensions = if exts.is_empty() { None } else { Some(exts) };
+                let token_model: TokenModel = model.parse().unwrap_or_default();
                 crate::flows::outline::run_outline(
                     &root,
                     scope.as_deref(),
                     tag.as_deref(),
                     extensions,
                     outline_fmt,
+                    token_model,
                     render_config,
                 )
             }
