@@ -1,6 +1,6 @@
 [package]
 name = "misec"
-version = "0.1.2"
+version = "1.0.0"
 edition = "2021"
 authors = ["mise contributors"]
 description = "A CLI context preparation tool for organizing files, snippets and anchors into structured output for AI agents"
