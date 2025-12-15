@@ -672,12 +672,18 @@ pub enum AnchorCommands {
 result per match.\n\n\
 Examples:\n\
   mise anchor list\n\
-  mise anchor list --tag chapter\n"
+  mise anchor list --tag chapter\n\
+  mise anchor list --brief\n"
     )]
     List {
         /// Only include anchors containing this tag.
         #[arg(long, value_name = "TAG")]
         tag: Option<String>,
+
+        /// Brief mode: only emit metadata (id, path, tags, range) without content.
+        /// Use this for initial exploration to save tokens, then use `anchor get <id>` for details.
+        #[arg(long)]
+        brief: bool,
     },
 
     /// Get a specific anchor by ID.
@@ -1118,8 +1124,8 @@ pub fn run(cli: Cli) -> Result<()> {
         } => crate::backends::extract::run_extract(&root, &path, &lines, max_bytes, render_config),
 
         Commands::Anchor { action } => match action {
-            AnchorCommands::List { tag } => {
-                crate::anchors::api::run_list(&root, tag.as_deref(), render_config)
+            AnchorCommands::List { tag, brief } => {
+                crate::anchors::api::run_list(&root, tag.as_deref(), brief, render_config)
             }
             AnchorCommands::Get { id, with_neighbors } => {
                 crate::anchors::api::run_get(&root, &id, with_neighbors, render_config)

@@ -112,7 +112,7 @@ pub fn rebuild_to_result_set(root: &Path) -> Result<ResultSet> {
     write_cache_jsonl(&cache_path, FILES_CACHE, &files.items)?;
 
     // Generate anchors.jsonl using anchor list
-    let anchors = crate::anchors::api::list_anchors(root, None)?;
+    let anchors = crate::anchors::api::list_anchors(root, None, false)?;
     write_cache_jsonl(&cache_path, ANCHORS_CACHE, &anchors.items)?;
 
     // Compute policy hash (simplified: just hash the version for now)

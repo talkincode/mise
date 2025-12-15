@@ -185,6 +185,32 @@ impl Anchor {
 
         item
     }
+
+    /// Convert anchor to brief ResultItem (metadata only, no content)
+    /// This saves tokens for initial exploration - use `anchor get <id>` for full content
+    pub fn to_result_item_brief(&self) -> crate::core::model::ResultItem {
+        use serde_json::json;
+
+        let mut item =
+            crate::core::model::ResultItem::anchor(self.path.clone(), Range::Line(self.range));
+
+        // No excerpt in brief mode
+        item.excerpt = None;
+
+        // Store anchor metadata (id, tags, version) in data field
+        item.data = Some(json!({
+            "id": self.id,
+            "tags": self.tags,
+            "version": self.version,
+        }));
+
+        item.meta = Meta {
+            hash: Some(self.hash.clone()),
+            ..Default::default()
+        };
+
+        item
+    }
 }
 
 #[cfg(test)]

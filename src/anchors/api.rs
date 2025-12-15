@@ -17,7 +17,8 @@ fn file_scan_options() -> ScanOptions {
 }
 
 /// List all anchors in the workspace
-pub fn list_anchors(root: &Path, tag_filter: Option<&str>) -> Result<ResultSet> {
+/// When brief=true, only emit metadata without content (saves tokens)
+pub fn list_anchors(root: &Path, tag_filter: Option<&str>, brief: bool) -> Result<ResultSet> {
     let mut result_set = ResultSet::new();
 
     // Scan all files
@@ -42,7 +43,11 @@ pub fn list_anchors(root: &Path, tag_filter: Option<&str>) -> Result<ResultSet> 
                     }
                 }
 
-                result_set.push(anchor.to_result_item());
+                if brief {
+                    result_set.push(anchor.to_result_item_brief());
+                } else {
+                    result_set.push(anchor.to_result_item());
+                }
             }
         }
     }
@@ -127,8 +132,8 @@ fn is_anchor_candidate(path: &Path) -> bool {
 }
 
 /// Run anchor list command
-pub fn run_list(root: &Path, tag: Option<&str>, config: RenderConfig) -> Result<()> {
-    let result_set = list_anchors(root, tag)?;
+pub fn run_list(root: &Path, tag: Option<&str>, brief: bool, config: RenderConfig) -> Result<()> {
+    let result_set = list_anchors(root, tag, brief)?;
 
     let renderer = Renderer::with_config(config);
     println!("{}", renderer.render(&result_set));
@@ -208,7 +213,7 @@ mod tests {
     #[test]
     fn test_list_anchors_empty_dir() {
         let temp = tempfile::tempdir().unwrap();
-        let result = list_anchors(temp.path(), None);
+        let result = list_anchors(temp.path(), None, false);
         assert!(result.is_ok());
         assert!(result.unwrap().items.is_empty());
     }
@@ -220,7 +225,7 @@ mod tests {
             "# Test\n<!--Q:begin id=test1 tags=a,b v=1-->\nContent\n<!--Q:end id=test1-->\n";
         std::fs::write(temp.path().join("test.md"), content).unwrap();
 
-        let result = list_anchors(temp.path(), None).unwrap();
+        let result = list_anchors(temp.path(), None, false).unwrap();
         assert_eq!(result.items.len(), 1);
     }
 
@@ -230,8 +235,27 @@ mod tests {
         let content = "<!--Q:begin id=a tags=foo v=1-->\nA\n<!--Q:end id=a-->\n<!--Q:begin id=b tags=bar v=1-->\nB\n<!--Q:end id=b-->\n";
         std::fs::write(temp.path().join("test.md"), content).unwrap();
 
-        let result = list_anchors(temp.path(), Some("foo")).unwrap();
+        let result = list_anchors(temp.path(), Some("foo"), false).unwrap();
         assert_eq!(result.items.len(), 1);
+    }
+
+    #[test]
+    fn test_list_anchors_brief_mode() {
+        let temp = tempfile::tempdir().unwrap();
+        let content =
+            "# Test\n<!--Q:begin id=test1 tags=a,b v=1-->\nContent here\n<!--Q:end id=test1-->\n";
+        std::fs::write(temp.path().join("test.md"), content).unwrap();
+
+        // Brief mode should not have excerpt
+        let result = list_anchors(temp.path(), None, true).unwrap();
+        assert_eq!(result.items.len(), 1);
+        assert!(result.items[0].excerpt.is_none());
+        assert!(result.items[0].data.is_some());
+
+        // Full mode should have excerpt
+        let result_full = list_anchors(temp.path(), None, false).unwrap();
+        assert_eq!(result_full.items.len(), 1);
+        assert!(result_full.items[0].excerpt.is_some());
     }
 
     #[test]

@@ -52,7 +52,7 @@ pub fn get_anchors_cached(root: &Path) -> Result<ResultSet> {
     }
 
     // Fall back to live list
-    list_anchors(root, None)
+    list_anchors(root, None, false)
 }
 
 /// Get all anchors as parsed Anchor structs (more useful for flows)
