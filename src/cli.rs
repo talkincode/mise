@@ -585,6 +585,158 @@ Example:\n\
     )]
     Doctor,
 
+    /// Execute multiple commands concurrently with structured output.
+    #[command(
+        long_about = r#"Execute multiple independent misec commands (or external commands) in parallel.
+Designed for running multiple non-conflicting analysis tasks efficiently.
+
+This is particularly useful for:
+- Running multiple misec analysis commands concurrently
+- Parallel code scanning across different scopes
+- Batch anchor operations
+- Combined analysis workflows
+
+Task definition formats (JSON):
+- Single task: {"id": "name", "cmd": "command"}
+- Task array: [{"id": "t1", "cmd": "c1"}, {"id": "t2", "cmd": "c2"}]
+- Task set with groups for organization
+
+Task properties:
+- id: Unique identifier (required)
+- cmd: Shell command to execute (required)
+- cwd: Working directory (relative to root)
+- env: Environment variables {"KEY": "value"}
+- timeout: Timeout in seconds (default: 300)
+- depends_on: Array of task IDs to wait for
+- tags: Array of tags for filtering
+
+Output management:
+- Default output dir: <workspace>/rundata/
+- Each task's output saved to <output_dir>/<task_id>.log
+- Outputs are temporary files, ideal for intermediate results
+- Use --output to specify custom directory
+
+Examples (misec parallel analysis):
+    # Parallel scanning of different directories
+    misec run --json '[
+      {"id":"scan-src","cmd":"misec scan --scope src --type file"},
+      {"id":"scan-tests","cmd":"misec scan --scope tests --type file"},
+      {"id":"scan-docs","cmd":"misec match TODO docs/"}
+    ]'
+
+    # Concurrent code search with different patterns
+    misec run --json '[
+      {"id":"find-todo","cmd":"misec match \"TODO|FIXME\" src/"},
+      {"id":"find-unsafe","cmd":"misec match \"unsafe|unwrap\" src/"},
+      {"id":"find-deps","cmd":"misec deps src/main.rs --deps-format tree"}
+    ]'
+
+    # Mixed misec and external commands
+    misec run --json '[
+      {"id":"anchors","cmd":"misec anchor list --pretty"},
+      {"id":"git-status","cmd":"git status --short"},
+      {"id":"cargo-check","cmd":"cargo check --message-format=json"}
+    ]'
+
+    # With dependencies (sequential when needed)
+    misec run --json '[
+      {"id":"rebuild","cmd":"misec rebuild"},
+      {"id":"lint","cmd":"misec anchor lint","depends_on":["rebuild"]},
+      {"id":"stats","cmd":"misec flow stats","depends_on":["rebuild"]}
+    ]'
+
+    # From task file with custom output directory
+    misec run --file analysis-tasks.json --output ./analysis-results
+
+    # Preview execution plan
+    misec run --json '...' --dry-run
+"#
+    )]
+    Run {
+        /// JSON string with task definitions.
+        #[arg(
+            long,
+            value_name = "JSON",
+            conflicts_with = "file",
+            long_help = "JSON string containing task definitions.\n\n\
+Accepts single task, array of tasks, or full task set with groups."
+        )]
+        json: Option<String>,
+
+        /// Path to JSON file with task definitions.
+        #[arg(
+            long,
+            value_name = "FILE",
+            conflicts_with = "json",
+            long_help = "Path to a JSON file containing task definitions."
+        )]
+        file: Option<std::path::PathBuf>,
+
+        /// Maximum number of parallel tasks (0 = auto based on CPU count).
+        #[arg(
+            short = 'j',
+            long,
+            default_value = "0",
+            value_name = "N",
+            long_help = "Maximum number of tasks to run in parallel.\n\n\
+Default (0) uses the number of CPU cores."
+        )]
+        parallel: usize,
+
+        /// Output directory for task results.
+        #[arg(
+            short,
+            long,
+            value_name = "DIR",
+            long_help = "Directory to save task output logs.\n\n\
+Default: <workspace>/rundata/\n\
+Each task creates a <task_id>.log file with stdout/stderr."
+        )]
+        output: Option<std::path::PathBuf>,
+
+        /// Don't save individual task outputs to files.
+        #[arg(
+            long,
+            long_help = "Skip saving task outputs to individual log files.\n\n\
+Outputs are still captured and included in the result set."
+        )]
+        no_save: bool,
+
+        /// Continue execution even if a task fails.
+        #[arg(
+            long,
+            long_help = "Continue executing remaining tasks even if one fails.\n\n\
+Without this flag, execution stops on first failure."
+        )]
+        continue_on_error: bool,
+
+        /// Global timeout override in seconds.
+        #[arg(
+            long,
+            value_name = "SECS",
+            long_help = "Override timeout for all tasks.\n\n\
+Individual task timeouts are ignored when this is set."
+        )]
+        timeout: Option<u64>,
+
+        /// Filter tasks by tag.
+        #[arg(
+            long,
+            value_name = "TAG",
+            long_help = "Only run tasks that have this tag.\n\n\
+Tasks without any tags are excluded when filtering."
+        )]
+        tag: Option<String>,
+
+        /// Show what would be executed without running.
+        #[arg(
+            long,
+            long_help = "Preview the execution plan without actually running tasks.\n\n\
+Shows all tasks that would be executed and their configuration."
+        )]
+        dry_run: bool,
+    },
+
     /// Watch for file changes and run commands (requires 'watch' feature)
     #[cfg(feature = "watch")]
     #[command(
@@ -1316,6 +1468,35 @@ pub fn run(cli: Cli) -> Result<()> {
                 )
             }
         },
+
+        Commands::Run {
+            json,
+            file,
+            parallel,
+            output,
+            no_save,
+            continue_on_error,
+            timeout,
+            tag,
+            dry_run,
+        } => {
+            let options = crate::backends::run::RunOptions {
+                max_parallel: parallel,
+                output_dir: output,
+                save_outputs: !no_save,
+                continue_on_error,
+                timeout,
+                filter_tag: tag,
+                dry_run,
+            };
+            crate::backends::run::run_run(
+                &root,
+                json.as_deref(),
+                file.as_deref(),
+                options,
+                render_config,
+            )
+        }
 
         Commands::Rebuild => crate::cache::store::run_rebuild(&root, render_config),
 
